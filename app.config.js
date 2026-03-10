@@ -1,6 +1,8 @@
-import { defineServer, defineRoom, monitor, playground, createRouter, createEndpoint, LobbyRoom, 
-// QueueRoom,
-auth, matchMaker, } from "colyseus";
+import {
+    defineServer, defineRoom, monitor, playground, createRouter, createEndpoint, LobbyRoom,
+    // QueueRoom,
+    auth, matchMaker,
+} from "colyseus";
 import { Bead16QueueRoom } from "./rooms/Bead16QueueRoom.js";
 import basicAuth from "express-basic-auth";
 /**
@@ -52,7 +54,7 @@ const server = defineServer({
          * Use @colyseus/playground
          * (It is not recommended to expose this route in a production environment)
          */
-        if (process.env.NODE_ENV !== "production") {
+        if (process.env.NODE_ENV == "production") {
             app.use("/", playground());
         }
         /**
