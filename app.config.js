@@ -1,8 +1,6 @@
-import {
-    defineServer, defineRoom, monitor, playground, createRouter, createEndpoint, LobbyRoom,
-    // QueueRoom,
-    auth, matchMaker,
-} from "colyseus";
+import { defineServer, defineRoom, monitor, playground, createRouter, createEndpoint, LobbyRoom, 
+// QueueRoom,
+auth, matchMaker, } from "colyseus";
 import { Bead16QueueRoom } from "./rooms/Bead16QueueRoom.js";
 import basicAuth from "express-basic-auth";
 /**
@@ -54,15 +52,9 @@ const server = defineServer({
          * Use @colyseus/playground
          * (It is not recommended to expose this route in a production environment)
          */
-        if (process.env.NODE_ENV == "production") {
-            app.use("/", playground());
-        }
-        /**
-         * Use @colyseus/monitor
-         * It is recommended to protect this route with a password
-         * Read more: https://docs.colyseus.io/tools/monitoring/#restrict-access-to-the-panel-using-a-password
-         */
-        app.use("/monitor", monitor());
+        // if (process.env.NODE_ENV == "production") {
+        // app.use("/", playground());
+        // }
         //? get spectator available rooms
         app.get("/viewers", async (req, res) => {
             try {
@@ -87,6 +79,13 @@ const server = defineServer({
                 res.status(500).json({ error: "error 500" });
             }
         });
+        /**
+         * Use @colyseus/monitor
+         * It is recommended to protect this route with a password
+         * Read more: https://docs.colyseus.io/tools/monitoring/#restrict-access-to-the-panel-using-a-password
+         */
+        app.use("/monitor", monitor());
+        app.use("/", playground());
     }
 });
 export default server;
