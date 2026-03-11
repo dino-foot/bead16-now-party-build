@@ -60,7 +60,7 @@ export class MyRoom extends Room {
         // IMPORTANT: Set metadata so the matchmaker can "see" the room requirements
         this.setMetadata({
             entryFee: options.entryFee || 1000,
-            gameId: options.gameId || "bead16_party"
+            gameId: options.gameId,
         });
         // 1. Initialize the state here
         this.state = new Bead16RoomState();
@@ -138,7 +138,7 @@ export class MyRoom extends Room {
         if (currentRealPlayers.length === 2) {
             this.setMetadata({
                 ...this.metadata,
-                isFull: true,
+                isFull: true, // for room listing filter [once true removed from public matchmaking]
                 hostName: this.state.host?.name ?? "Host",
                 hostAvatarId: this.state.host?.avatarId ?? "0",
                 p1CountryID: currentRealPlayers[0]?.country,
@@ -196,24 +196,24 @@ export class MyRoom extends Room {
         console.log("Player reconnected: ", player.colyseusId);
     }
     // If reconnection fails/times out
-    // todo if a player leave do autoplay if atleast 1 player in the room
+    // if a player leave do autoplay if atleast 1 player in the room
     onLeave(client, code) {
         const player = this.state.players.get(client.sessionId);
-        if (player && !player.disconnected) {
-            activePlayers.delete(player.playfabId); // Remove from tracking
-            // player.disconnected = true;
-        }
         if (player) {
+            console.log(`Player ${player.playfabId} left. Consented: ${code}`);
+            activePlayers.delete(player.playfabId); // Remove from tracking
+            player.disconnected = true;
             this.state.players.delete(client.sessionId);
             // if the player is the host, assign a new host
             if (this.state.host === player && this.state.players.size > 0) {
-                this.state.host = this.state.players.values().next().value;
+                const nextPlayer = Array.from(this.state.players.values()).find(p => !p.isSpectator);
+                this.state.host = nextPlayer || null;
             }
         }
         //? p1/p2 left keep autoplaying, both players left even though room has spectators disconnect the room
         const activePlayerCount = Array.from(this.state.players.values()).filter(p => !p.isSpectator).length;
-        if (activePlayerCount <= 1) {
-            console.log("Both players left. Closing room for spectators...");
+        if (activePlayerCount === 0) {
+            console.log("No players left. Closing room for spectators...");
             this.disconnect();
         }
     } // end
