@@ -8,13 +8,13 @@ import { Room } from "@colyseus/core";
 import { MapSchema, Schema, type } from "@colyseus/schema";
 import { GameState } from "./game/GameState.js";
 import { Player } from "./game/Bead16Schemas.js";
-import { DEFAULT_AVATAR_ID, DEFAULT_AVATAR_URL, DEFAULT_BEAD_ID, DEFAULT_COINS, DEFAULT_COUNTRY, DEFAULT_FRAME_ID, MATCH_COMMISSION } from "./Constants/Global.js";
+import { DEFAULT_AVATAR_ID, DEFAULT_AVATAR_URL, DEFAULT_BEAD_ID, DEFAULT_ENTRY_FEE, DEFAULT_COUNTRY, DEFAULT_FRAME_ID, DUMMY_PLAYER_TIME_MS, MATCH_COMMISSION } from "./Constants/Global.js";
 class Bead16RoomState extends Schema {
     constructor() {
         super(...arguments);
         this.players = new MapSchema(); // gameplayers + spectator players
         this.host = null; // just a variable to track the host player
-        this.totalEntryFees = 2000; // default value
+        this.totalEntryFees = DEFAULT_ENTRY_FEE * 2; // default value
         this.winnerFees = 1600;
     }
 }
@@ -38,11 +38,10 @@ const activePlayers = new Set(); // number of players are playing now
 export class MyRoom extends Room {
     constructor() {
         super(...arguments);
-        //? room config
+        // room variables
         this.maxClients = 8; //? 2 + 6 spectators
         this.autoDispose = true;
     }
-    // turnTimer?: Delayed;
     async onAuth(client, options) {
         console.log("onAuth options >> ", options);
         const playfabId = options?.playfabId; // todo do sanity check on playfabId format 
@@ -64,6 +63,15 @@ export class MyRoom extends Room {
         });
         // 1. Initialize the state here
         this.state = new Bead16RoomState();
+        this.dummyPlayerTimer = this.clock.setTimeout(() => {
+            if (this.clients.length === 1) {
+                // 1. Notify the only player to start a local bot match
+                this.broadcast("START_DUMMY_MATCH", { reason: "timeout" });
+                console.log('START_DUMMY_MATCH');
+                // 2. Close the room on the server to save resources
+                this.disconnect();
+            }
+        }, DUMMY_PLAYER_TIME_MS);
         //? get beadId from unity on bead click
         this.onMessage("getMoves", (client, data) => {
             const player = this.state.players.get(client.sessionId);
@@ -100,7 +108,6 @@ export class MyRoom extends Room {
     onJoin(client, options) {
         // init player object
         const player = new Player();
-        const isSpectatorRequest = options.isSpectator === true;
         // 1. Identify Role
         const activePlayerCount = Array.from(this.state.players.values()).filter(p => !p.isSpectator).length;
         if (options.isSpectator || activePlayerCount >= 2) {
@@ -117,7 +124,7 @@ export class MyRoom extends Room {
         player.colyseusId = client.sessionId;
         player.playfabId = options?.playfabId;
         player.name = options?.playerName ?? "Player " + (this.state.players.size + 1);
-        player.coins = options?.coins ?? DEFAULT_COINS;
+        // player.coins = options?.coins ?? DEFAULT_ENTRY_FEE;
         player.country = options?.country ?? DEFAULT_COUNTRY;
         player.avatarId = options?.avatarId ?? DEFAULT_AVATAR_ID;
         player.avatarUrl = options?.avatarUrl ?? DEFAULT_AVATAR_URL;
@@ -129,13 +136,14 @@ export class MyRoom extends Room {
         this.state.players.set(client.sessionId, player);
         if (this.state.host == null && !player.isSpectator) {
             this.state.host = player;
-            const entryFee = options?.entryFee ?? 1000;
+            const entryFee = options?.entryFee ?? DEFAULT_ENTRY_FEE;
             this.state.totalEntryFees = entryFee * 2;
             this.state.winnerFees = this.state.totalEntryFees * (1 - MATCH_COMMISSION);
         }
         // 5. Matchmaking Lock & Game Start
         const currentRealPlayers = Array.from(this.state.players.values()).filter(p => !p.isSpectator);
         if (currentRealPlayers.length === 2) {
+            this.dummyPlayerTimer.clear(); // Cancel the bot timer if a real second player joins
             this.setMetadata({
                 ...this.metadata,
                 isFull: true, // for room listing filter [once true removed from public matchmaking]
@@ -146,7 +154,14 @@ export class MyRoom extends Room {
             });
             // todo gameStatus = MATCHED, delay = 5 seconds, then START game
             if (!this.state.gameState) {
-                this.startGame();
+                const Player1 = currentRealPlayers[0];
+                const Player2 = currentRealPlayers[1];
+                this.state.gameState = new GameState(Player1, Player2);
+                this.state.gameState.gameStatus = "MATCHED";
+                this.clock.setTimeout(() => {
+                    // This function should change status to "START" and set up beads
+                    this.startGame();
+                }, 5000);
             }
         }
         // if (this.state.players.size === 8) {
@@ -155,11 +170,13 @@ export class MyRoom extends Room {
     } // end onJoin
     startGame() {
         console.log("Both players joined! Initializing game state...");
-        const playerIds = Array.from(this.state.players.keys());
-        const Player1 = this.state.players.get(playerIds[0]);
-        const Player2 = this.state.players.get(playerIds[1]);
+        // const playerIds = Array.from(this.state.players.keys());
+        // const Player1 = this.state.players.get(playerIds[0]);
+        // const Player2 = this.state.players.get(playerIds[1]);
         // Create the GameState instance
-        this.state.gameState = new GameState(Player1, Player2);
+        // this.state.gameState = new GameState(Player1, Player2);
+        this.state.gameState.gameStatus = "START";
+        this.state.gameState.setNextTurnTimestamp(); // start initial timer
         // Run the game loop 10 times per second
         this.setSimulationInterval((deltaTime) => {
             this.update(deltaTime);
@@ -200,7 +217,7 @@ export class MyRoom extends Room {
     onLeave(client, code) {
         const player = this.state.players.get(client.sessionId);
         if (player) {
-            console.log(`Player ${player.playfabId} left. Consented: ${code}`);
+            console.log(`Player ${player.playfabId} left. Consented: ${code}`); // 1006 (Abnormal Closure): 
             activePlayers.delete(player.playfabId); // Remove from tracking
             player.disconnected = true;
             this.state.players.delete(client.sessionId);

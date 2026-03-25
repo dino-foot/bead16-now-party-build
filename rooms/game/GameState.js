@@ -38,8 +38,8 @@ export class GameState extends Schema {
         }
         this.currentTurn = p1.playfabId; //todo P1 always starts || todo switch to sessionid instead of playfabId for better colyseus integration]
         this.updateMoveableBeads();
-        this.gameStatus = "START";
-        this.setNextTurnTimestamp(); // Initialize the turn timer
+        // this.gameStatus = "START";
+        // this.setNextTurnTimestamp(); // Initialize the turn timer
     }
     createBead(index, owner, id) {
         const bead = new Bead();

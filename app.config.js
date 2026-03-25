@@ -1,8 +1,6 @@
-import {
-    defineServer, defineRoom, monitor, playground, createRouter, createEndpoint, LobbyRoom,
-    // QueueRoom,
-    auth, matchMaker,
-} from "colyseus";
+import { defineServer, defineRoom, monitor, playground, createRouter, createEndpoint, LobbyRoom, 
+// QueueRoom,
+auth, matchMaker, } from "colyseus";
 import { Bead16QueueRoom } from "./rooms/Bead16QueueRoom.js";
 import basicAuth from "express-basic-auth";
 /**
@@ -54,9 +52,9 @@ const server = defineServer({
          * Use @colyseus/playground
          * (It is not recommended to expose this route in a production environment)
          */
-        // if (process.env.NODE_ENV !== "production") {
-        app.use("/", playground());
-        // }
+        if (process.env.NODE_ENV !== "production") {
+            app.use("/", playground());
+        }
         /**
          * Use @colyseus/monitor
          * It is recommended to protect this route with a password
@@ -72,6 +70,7 @@ const server = defineServer({
                     private: false // Ensure they aren't hidden
                 });
                 // Filter out rooms where clients >= 8 (2 players + 6 spectators)
+                // we cant set 1 player as spectators cause we will run dummy multiplayer for them
                 const joinableRooms = rooms.filter(room => room.clients >= 2 && room.clients < 8);
                 // Map to a clean JSON response for Unity
                 const response = joinableRooms.map(room => ({
