@@ -42,8 +42,13 @@ export class MyRoom extends Room {
         this.maxClients = 8; //? 2 + 6 spectators
         this.autoDispose = true;
     }
+    static { this.SERVER_VERSION = "0.0.1"; }
     async onAuth(client, options) {
         console.log("onAuth options >> ", options);
+        // 1. VERSION CHECK: Reject clients with mismatching versions
+        // if (options.version !== MyRoom.SERVER_VERSION) {
+        //   throw new Error(`Version mismatch! Server: ${MyRoom.SERVER_VERSION}, Client: ${options.version || "none"}`);
+        // }
         const playfabId = options?.playfabId; // todo do sanity check on playfabId format 
         if (!playfabId) {
             throw new Error("Authentication failed: No playfabId provided.");
@@ -231,6 +236,7 @@ export class MyRoom extends Room {
         const activePlayerCount = Array.from(this.state.players.values()).filter(p => !p.isSpectator).length;
         if (activePlayerCount === 0) {
             console.log("No players left. Closing room for spectators...");
+            this.broadcast("NO_ACTIVE_PLAYERS", { reason: "All Players Left" }); // to handle spectator client side
             this.disconnect();
         }
     } // end
