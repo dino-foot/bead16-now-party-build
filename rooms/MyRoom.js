@@ -42,7 +42,7 @@ export class MyRoom extends Room {
         this.maxClients = 8; //? 2 + 6 spectators
         this.autoDispose = true;
     }
-    static { this.SERVER_VERSION = "0.0.1"; }
+    // static SERVER_VERSION = "0.0.1";
     async onAuth(client, options) {
         console.log("onAuth options >> ", options);
         // 1. VERSION CHECK: Reject clients with mismatching versions
@@ -129,7 +129,7 @@ export class MyRoom extends Room {
         player.colyseusId = client.sessionId;
         player.playfabId = options?.playfabId;
         player.name = options?.playerName ?? "Player " + (this.state.players.size + 1);
-        // player.coins = options?.coins ?? DEFAULT_ENTRY_FEE;
+        player.coins = options?.coins ?? 0;
         player.country = options?.country ?? DEFAULT_COUNTRY;
         player.avatarId = options?.avatarId ?? DEFAULT_AVATAR_ID;
         player.avatarUrl = options?.avatarUrl ?? DEFAULT_AVATAR_URL;
