@@ -41,7 +41,7 @@ const server = defineServer({
      */
     routes: createRouter({
         version: createEndpoint("/version", { method: "GET" }, async (ctx) => {
-            return { version: "0.0.3" };
+            return { version: "0.0.5" };
         })
     }),
     /**
