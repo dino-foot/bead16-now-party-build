@@ -13,7 +13,7 @@ export class GameState extends Schema {
         this.winnerPlayerfabId = "";
         this.turnEndsAt = 0; // sync this with unity to trigger timer
         this.isStreaming = false;
-        this.activeMultiJumpId = "";
+        this.activeMultiJumpId = ""; // | null
         this.players = new ArraySchema(); // ref only gameplayers
         this.matchType = "PUBLIC";
         this.gameStatus = "WAITING";
@@ -112,7 +112,11 @@ export class GameState extends Schema {
             return;
         // Use our updated logic to see if the requested move is in the list
         const validMoves = this.getValidMovesForBead(beadId);
-        console.log(`validMoves for bead ${beadId} at index ${bead.index}: ${validMoves}`);
+        // debug logs
+        console.log("TURN:", this.currentTurn);
+        console.log("REQUEST BY:", playerId);
+        console.log("VALID MOVES:", validMoves);
+        console.log("TO INDEX:", toIndex);
         if (!validMoves.includes(toIndex))
             return;
         //? update moves
@@ -120,12 +124,6 @@ export class GameState extends Schema {
         if (currentPlayer) {
             currentPlayer.moves += 1;
         }
-        // console.log("moveBead", {
-        //     'playerId': playerId,
-        //     'currentTurn': this.currentTurn,
-        //     'beadOwner': bead.ownerPlayfabId,
-        //     'beadId': bead.id,
-        // });
         // Determine if this specific move is a jump
         let capturedIndex = null;
         for (const neighbor of this.board.getNeighbors(bead.index)) {

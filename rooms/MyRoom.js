@@ -94,13 +94,10 @@ export class MyRoom extends Room {
         //? makeMove Request after valid moves 
         this.onMessage("makeMove", (client, data) => {
             const player = this.state.players.get(client.sessionId);
-            console.log("makeMove request >> ", player.name, data);
-
             if (!player || player.isSpectator) {
                 console.warn(`[REJECTED] Spectator ${client.sessionId} attempted to move.`);
                 return;
             }
-
             const { beadId, toIndex } = data;
             const bead = this.state.gameState.getBeadById(beadId);
             // validation: ensure the bead belongs to the player making the move
@@ -109,7 +106,7 @@ export class MyRoom extends Room {
                 return;
             }
             // execute the player move
-            // console.log("currentTurn ", this.state.gameState.currentTurn, data);
+            console.log("currentTurn >> ", player.name, data);
             this.state.gameState.moveBead(bead.ownerPlayfabId, beadId, toIndex);
         }); // end onMessage
     } // end onCreate
