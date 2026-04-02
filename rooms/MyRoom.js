@@ -94,12 +94,12 @@ export class MyRoom extends Room {
         //? makeMove Request after valid moves 
         this.onMessage("makeMove", (client, data) => {
             const player = this.state.players.get(client.sessionId);
+            console.log("makeMove request >> ", player.name, data);
+
             if (!player || player.isSpectator) {
                 console.warn(`[REJECTED] Spectator ${client.sessionId} attempted to move.`);
                 return;
             }
-
-            console.log("makeMove request >> ", player.name, data);
 
             const { beadId, toIndex } = data;
             const bead = this.state.gameState.getBeadById(beadId);
