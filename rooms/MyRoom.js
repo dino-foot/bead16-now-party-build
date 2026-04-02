@@ -98,6 +98,9 @@ export class MyRoom extends Room {
                 console.warn(`[REJECTED] Spectator ${client.sessionId} attempted to move.`);
                 return;
             }
+
+            console.log("makeMove request >> ", client.name, data);
+
             const { beadId, toIndex } = data;
             const bead = this.state.gameState.getBeadById(beadId);
             // validation: ensure the bead belongs to the player making the move
@@ -106,7 +109,7 @@ export class MyRoom extends Room {
                 return;
             }
             // execute the player move
-            console.log("currentTurn ", this.state.gameState.currentTurn, data);
+            // console.log("currentTurn ", this.state.gameState.currentTurn, data);
             this.state.gameState.moveBead(bead.ownerPlayfabId, beadId, toIndex);
         }); // end onMessage
     } // end onCreate

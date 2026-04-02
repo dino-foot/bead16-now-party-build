@@ -119,12 +119,12 @@ export class GameState extends Schema {
         if (currentPlayer) {
             currentPlayer.moves += 1;
         }
-        console.log("moveBead", {
-            'playerId': playerId,
-            'currentTurn': this.currentTurn,
-            'beadOwner': bead.ownerPlayfabId,
-            'beadId': bead.id,
-        });
+        // console.log("moveBead", {
+        //     'playerId': playerId,
+        //     'currentTurn': this.currentTurn,
+        //     'beadOwner': bead.ownerPlayfabId,
+        //     'beadId': bead.id,
+        // });
         // Determine if this specific move is a jump
         let capturedIndex = null;
         for (const neighbor of this.board.getNeighbors(bead.index)) {
