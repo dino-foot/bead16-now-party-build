@@ -112,6 +112,7 @@ export class GameState extends Schema {
             return;
         // Use our updated logic to see if the requested move is in the list
         const validMoves = this.getValidMovesForBead(beadId);
+        console.log(`validMoves for bead ${beadId} at index ${bead.index}: ${validMoves}`);
         if (!validMoves.includes(toIndex))
             return;
         //? update moves

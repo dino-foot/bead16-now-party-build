@@ -99,7 +99,7 @@ export class MyRoom extends Room {
                 return;
             }
 
-            console.log("makeMove request >> ", client.name, data);
+            console.log("makeMove request >> ", player.name, data);
 
             const { beadId, toIndex } = data;
             const bead = this.state.gameState.getBeadById(beadId);
