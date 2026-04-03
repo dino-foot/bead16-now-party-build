@@ -143,7 +143,7 @@ export class MyRoom extends Room {
             this.state.host = player;
             const entryFee = options?.entryFee ?? DEFAULT_ENTRY_FEE;
             this.state.totalEntryFees = entryFee * 2;
-            this.state.winnerFees = this.state.totalEntryFees * (1 - MATCH_COMMISSION);
+            this.state.winnerFees = this.state.totalEntryFees * (1 - MATCH_COMMISSION); //? 1600 for 1000 entry fee and 20% commission
         }
         // 5. Matchmaking Lock & Game Start
         const currentRealPlayers = Array.from(this.state.players.values()).filter(p => !p.isSpectator);
