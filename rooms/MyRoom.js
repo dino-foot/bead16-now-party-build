@@ -201,7 +201,7 @@ export class MyRoom extends Room {
                     console.log("[DISPOSE] 20s passed. Disconnecting all clients.");
                     this.state.players.forEach(p => activePlayers.delete(p.playfabId));
                     this.disconnect();
-                }, 20000);
+                }, 60000);
             }
             return;
         }
