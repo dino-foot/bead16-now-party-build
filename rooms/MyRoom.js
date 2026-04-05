@@ -202,7 +202,7 @@ export class MyRoom extends Room {
         const game = this.state.gameState;
         // Only check if a game is actually in progress
         if (!game || game.gameStatus === "END") {
-            console.log("[GAMEOVER] - Cleaning up room...");
+            // console.log("[GAMEOVER] - Cleaning up room...");
             if (process.env.DEBUG == "shohan") {
                 //? 0.0.8 [shohan-hotfix]
                 const remainingActive = Array.from(this.state.players.values()).filter(p => !p.disconnected).length;
