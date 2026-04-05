@@ -189,14 +189,14 @@ export class MyRoom extends Room {
         }, 100);
         //? 0.0.8 [shohan-hotfix]
         //? [DEBUG] GAMEOVER after 60 seconds for testing
-        if (process.env.DEBUG == "shohan") {
-            this.clock.setTimeout(() => {
-                const playerIds = Array.from(this.state.players.keys());
-                const p1 = this.state.players.get(playerIds[0]);
-                this.state.gameState.endGame(p1.playfabId);
-                console.log("[DEBUG] Game status set to END after 60 seconds.");
-            }, 60000);
-        }
+        // if (process.env.DEBUG == "shohan") {
+        //     this.clock.setTimeout(() => {
+        //         const playerIds = Array.from(this.state.players.keys());
+        //         const p1 = this.state.players.get(playerIds[0]);
+        //         this.state.gameState.endGame(p1.playfabId);
+        //         console.log("[DEBUG] Game status set to END after 60 seconds.");
+        //     }, 60000);
+        // }
     }
     update(deltaTime) {
         const game = this.state.gameState;
