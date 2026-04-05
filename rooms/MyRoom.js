@@ -203,24 +203,24 @@ export class MyRoom extends Room {
         // Only check if a game is actually in progress
         if (!game || game.gameStatus === "END") {
             // console.log("[GAMEOVER] - Cleaning up room...");
-            if (process.env.DEBUG == "shohan") {
-                //? 0.0.8 [shohan-hotfix]
-                const remainingActive = Array.from(this.state.players.values()).filter(p => !p.disconnected).length;
-                if (remainingActive === 0) {
-                    console.log("[GAMEOVER]All players left GameOver screen. Disposing room early.");
-                    this.disconnect();
-                }
-                //? 0.0.8 [shohan-hotfix]
-                if (!this.metadata?.isGameOver) {
-                    this.setMetadata({ ...this.metadata, isGameOver: true }); // for room spectators filter
-                    // Start the final countdown to room disposal
-                    this.clock.setTimeout(() => {
-                        console.log("[GAMEOVER] 90s passed. Disconnecting all clients.");
-                        this.state.players.forEach(p => activePlayers.delete(p.playfabId));
-                        this.disconnect();
-                    }, 90000);
-                }
+            // if (process.env.DEBUG == "shohan") {
+            //? 0.0.8 [shohan-hotfix]
+            const remainingActive = Array.from(this.state.players.values()).filter(p => !p.disconnected).length;
+            if (remainingActive === 0) {
+                console.log("[GAMEOVER] All players left (GameOver screen). Disposing room early.");
+                this.disconnect();
             }
+            //? 0.0.8 [shohan-hotfix]
+            if (!this.metadata?.isGameOver) {
+                this.setMetadata({ ...this.metadata, isGameOver: true }); // for room spectators filter
+                // Start the final countdown to room disposal
+                this.clock.setTimeout(() => {
+                    console.log("[GAMEOVER] 90s passed. Disconnecting all clients.");
+                    this.state.players.forEach(p => activePlayers.delete(p.playfabId));
+                    this.disconnect();
+                }, 90000);
+            }
+            // }
             return;
         }
         if (Date.now() >= game.turnEndsAt) {
