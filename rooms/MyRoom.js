@@ -187,21 +187,39 @@ export class MyRoom extends Room {
         this.setSimulationInterval((deltaTime) => {
             this.update(deltaTime);
         }, 100);
+        //? 0.0.8 [shohan-hotfix]
+        //? [DEBUG] GAMEOVER after 60 seconds for testing
+        if (process.env.DEBUG == "shohan") {
+            this.clock.setTimeout(() => {
+                const playerIds = Array.from(this.state.players.keys());
+                const p1 = this.state.players.get(playerIds[0]);
+                this.state.gameState.endGame(p1.playfabId);
+                console.log("[DEBUG] Game status set to END after 60 seconds.");
+            }, 60000);
+        }
     }
     update(deltaTime) {
         const game = this.state.gameState;
         // Only check if a game is actually in progress
         if (!game || game.gameStatus === "END") {
             console.log("[GAMEOVER] - Cleaning up room...");
-            //? 0.0.8 [shohan-hotfix]
-            if (!this.metadata?.isGameOver) {
-                this.setMetadata({ ...this.metadata, isGameOver: true }); // for room spectators filter
-                // Start the final countdown to room disposal
-                this.clock.setTimeout(() => {
-                    console.log("[DISPOSE] 90sec passed. Disconnecting all clients.");
-                    this.state.players.forEach(p => activePlayers.delete(p.playfabId));
+            if (process.env.DEBUG == "shohan") {
+                //? 0.0.8 [shohan-hotfix]
+                const remainingActive = Array.from(this.state.players.values()).filter(p => !p.disconnected).length;
+                if (remainingActive === 0) {
+                    console.log("[GAMEOVER]All players left GameOver screen. Disposing room early.");
                     this.disconnect();
-                }, 90000);
+                }
+                //? 0.0.8 [shohan-hotfix]
+                if (!this.metadata?.isGameOver) {
+                    this.setMetadata({ ...this.metadata, isGameOver: true }); // for room spectators filter
+                    // Start the final countdown to room disposal
+                    this.clock.setTimeout(() => {
+                        console.log("[GAMEOVER] 90s passed. Disconnecting all clients.");
+                        this.state.players.forEach(p => activePlayers.delete(p.playfabId));
+                        this.disconnect();
+                    }, 90000);
+                }
             }
             return;
         }
