@@ -198,10 +198,10 @@ export class MyRoom extends Room {
                 this.setMetadata({ ...this.metadata, isGameOver: true }); // for room spectators filter
                 // Start the final countdown to room disposal
                 this.clock.setTimeout(() => {
-                    console.log("[DISPOSE] 20s passed. Disconnecting all clients.");
+                    console.log("[DISPOSE] 90sec passed. Disconnecting all clients.");
                     this.state.players.forEach(p => activePlayers.delete(p.playfabId));
                     this.disconnect();
-                }, 60000);
+                }, 90000);
             }
             return;
         }
