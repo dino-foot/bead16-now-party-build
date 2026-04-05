@@ -41,7 +41,7 @@ const server = defineServer({
      */
     routes: createRouter({
         version: createEndpoint("/version", { method: "GET" }, async (ctx) => {
-            return { version: "0.0.7" };
+            return { version: "0.0.8" };
         })
     }),
     /**
@@ -56,6 +56,7 @@ const server = defineServer({
          */
         if (process.env.SAMPLE !== "production") {
             app.use("/", playground());
+            // server.simulateLatency(200); //? Simulate 200ms latency for all routes (for testing purposes)
         }
         /**
          * Use @colyseus/monitor
@@ -73,7 +74,9 @@ const server = defineServer({
                 });
                 // Filter out rooms where clients >= 8 (2 players + 6 spectators)
                 // we cant set 1 player as spectators cause we will run dummy multiplayer for them
-                const joinableRooms = rooms.filter(room => room.clients >= 2 && room.clients < 8);
+                const joinableRooms = rooms.filter(room => room.clients >= 2 &&
+                    room.clients < 8 &&
+                    room.metadata?.isGameOver !== true);
                 // Map to a clean JSON response for Unity
                 const response = joinableRooms.map(room => ({
                     roomId: room.roomId,

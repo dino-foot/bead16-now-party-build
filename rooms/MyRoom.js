@@ -72,7 +72,8 @@ export class MyRoom extends Room {
             if (this.clients.length === 1) {
                 // 1. Notify the only player to start a local bot match
                 this.broadcast("START_DUMMY_MATCH", { reason: "timeout" });
-                console.log('START_DUMMY_MATCH');
+                const dummyPlayer = this.state.players.get(this.clients[0].sessionId);
+                console.log('START_DUMMY_MATCH for client:', dummyPlayer.name);
                 // 2. Close the room on the server to save resources
                 this.disconnect();
             }
@@ -106,7 +107,7 @@ export class MyRoom extends Room {
                 return;
             }
             // execute the player move
-            console.log("currentTurn >> ", player.name, data);
+            console.log("[CURRENT TURN] ", player.name, data);
             this.state.gameState.moveBead(bead.ownerPlayfabId, beadId, toIndex);
         }); // end onMessage
     } // end onCreate
@@ -118,12 +119,12 @@ export class MyRoom extends Room {
         if (options.isSpectator || activePlayerCount >= 2) {
             player.isSpectator = true;
             player.seat = -1; // No seat for spectators
-            console.log(`Player ${options.playfabId} joined as Spectator.`);
+            console.log(`Player ${options.playfabId} joined as [SPECTATOR].`);
         }
         else {
             player.isSpectator = false;
             player.seat = activePlayerCount; // Assign seat 0 or 1
-            console.log(`Player ${options.playfabId} joined as Active Player.`);
+            console.log(`Player ${options.playfabId} joined as [ACTIVE PLAYER].`);
         }
         //? init common player properties
         player.colyseusId = client.sessionId;
@@ -191,7 +192,17 @@ export class MyRoom extends Room {
         const game = this.state.gameState;
         // Only check if a game is actually in progress
         if (!game || game.gameStatus === "END") {
-            console.log("[GAMEOVER]", game?.currentTurn);
+            console.log("[GAMEOVER] - Cleaning up room...");
+            //? 0.0.8 [shohan-hotfix]
+            if (!this.metadata?.isGameOver) {
+                this.setMetadata({ ...this.metadata, isGameOver: true }); // for room spectators filter
+                // Start the final countdown to room disposal
+                this.clock.setTimeout(() => {
+                    console.log("[DISPOSE] 20s passed. Disconnecting all clients.");
+                    this.state.players.forEach(p => activePlayers.delete(p.playfabId));
+                    this.disconnect();
+                }, 20000);
+            }
             return;
         }
         if (Date.now() >= game.turnEndsAt) {
@@ -203,19 +214,19 @@ export class MyRoom extends Room {
         }
     } // end update
     async onDrop(client) {
-        this.allowReconnection(client, 30); // allow the client to reconnect within 30 seconds
+        this.allowReconnection(client, 60); // allow the client to reconnect within 60 seconds [will not work for unity]
         const player = this.state.players.get(client.sessionId);
         if (player) {
             player.disconnected = true;
         }
-        console.log("Player connection droped: ", player.colyseusId);
+        console.log("[CONNECTION DROPPED] ", player.name);
     }
     onReconnect(client) {
         const player = this.state.players.get(client.sessionId);
         if (player) {
             player.disconnected = false;
         }
-        console.log("Player reconnected: ", player.colyseusId);
+        console.log("[PLAYER RECONNECTED] ", player.name);
     }
     // If reconnection fails/times out
     // if a player leave do autoplay if atleast 1 player in the room
@@ -235,7 +246,7 @@ export class MyRoom extends Room {
         //? p1/p2 left keep autoplaying, both players left even though room has spectators disconnect the room
         const activePlayerCount = Array.from(this.state.players.values()).filter(p => !p.isSpectator).length;
         if (activePlayerCount === 0) {
-            console.log("No players left. Closing room for spectators...");
+            console.log("[NO_ACTIVE_PLAYERS] No players left. Closing room for spectators...");
             this.broadcast("NO_ACTIVE_PLAYERS", { reason: "All Players Left" }); // to handle spectator client side
             this.disconnect();
         }
@@ -243,6 +254,6 @@ export class MyRoom extends Room {
     async onDispose() {
         // Safety: ensure all players in this room are cleared if room is destroyed
         this.state.players.forEach(p => activePlayers.delete(p.playfabId));
-        console.log("Room disposed, cleared active player tracking.");
+        console.log("[ROOM DISPOSED], cleared active player tracking.");
     }
 }
