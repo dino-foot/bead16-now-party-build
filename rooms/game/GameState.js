@@ -232,7 +232,7 @@ export class GameState extends Schema {
     performAutoplay() {
         if (this.gameStatus !== "START")
             return false;
-        console.log(`[AUTOPLAY] for player >> ${this.currentTurn}`);
+        // console.log(`[AUTOPLAY] for player >> ${this.currentTurn}`);
         // 1. Get all beads belonging to the current player that can move
         const moveableBeads = this.allBeads.filter(b => b.isAlive &&
             b.ownerPlayfabId === this.currentTurn &&
@@ -247,7 +247,7 @@ export class GameState extends Schema {
         const validMoves = this.getValidMovesForBead(randomBead.id);
         const randomMove = validMoves[Math.floor(Math.random() * validMoves.length)];
         // 4. Execute the move using your existing logic
-        console.log(`[AUTOPLAY] Moving ${randomBead.id} to ${randomMove}`);
+        console.log(`[AUTOPLAY] Moving Bead ${randomBead.id} to ${randomMove}`); // todo add a mini AI
         this.moveBead(this.currentTurn, randomBead.id, randomMove);
         return true;
     }
