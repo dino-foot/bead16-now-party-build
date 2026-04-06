@@ -51,7 +51,7 @@ export class MyRoom extends Room {
         // }
         const playfabId = options?.playfabId; // todo do sanity check on playfabId format 
         if (!playfabId) {
-            throw new Error("Authentication failed: No playfabId provided.");
+            throw new Error("Authentication failed: No playfabId provided. ", options);
         }
         // Check if the player is already in ANY room managed by this process
         // if (activePlayers.has(playfabId)) {
