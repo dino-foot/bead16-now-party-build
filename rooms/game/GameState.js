@@ -21,6 +21,7 @@ export class GameState extends Schema {
         this.lastStandMove = DEFAULT_LAST_STAND_MOVE; // to trigger draw if both players reach this number of moves without a winner
         this.board = new Board();
         this.allBeads = new ArraySchema();
+        this.clickableBeadIds = new ArraySchema(); //  todo hightlight valid client beads to move in unity
         this.players.push(P1);
         this.players.push(P2);
         this.startMatch(P1, P2);
@@ -54,10 +55,16 @@ export class GameState extends Schema {
         // console.log(`Spawned bead ${id} for player ${ownerId} at index ${index}`);
     }
     updateMoveableBeads() {
+        this.clickableBeadIds.clear(); //? v0.0.9
         this.allBeads.forEach(bead => {
             if (bead.isAlive && bead.ownerPlayfabId === this.currentTurn) {
                 const moves = this.getValidMovesForBead(bead.id);
                 bead.isMoveable = moves.length > 0;
+                // add to clickable list if moveable for highlight in unity
+                //? v0.0.9
+                if (bead.isMoveable) {
+                    this.clickableBeadIds.push(bead.id);
+                }
                 // console.log(`[updateMoveableBeads] ${bead.id} at ${bead.index} moveable: ${bead.isMoveable} ${moves}`);
             }
             else {
@@ -232,7 +239,7 @@ export class GameState extends Schema {
     performAutoplay() {
         if (this.gameStatus !== "START")
             return false;
-        // console.log(`[AUTOPLAY] for player >> ${this.currentTurn}`);
+        console.log(`[AUTOPLAY] for player >> ${this.currentTurn}`);
         // 1. Get all beads belonging to the current player that can move
         const moveableBeads = this.allBeads.filter(b => b.isAlive &&
             b.ownerPlayfabId === this.currentTurn &&
@@ -247,7 +254,7 @@ export class GameState extends Schema {
         const validMoves = this.getValidMovesForBead(randomBead.id);
         const randomMove = validMoves[Math.floor(Math.random() * validMoves.length)];
         // 4. Execute the move using your existing logic
-        console.log(`[AUTOPLAY] Moving Bead ${randomBead.id} to ${randomMove}`); // todo add a mini AI
+        console.log(`[AUTOPLAY] Moving ${randomBead.id} to ${randomMove}`);
         this.moveBead(this.currentTurn, randomBead.id, randomMove);
         return true;
     }
@@ -318,3 +325,6 @@ __decorate([
 __decorate([
     type([Bead])
 ], GameState.prototype, "allBeads", void 0);
+__decorate([
+    type(["string"])
+], GameState.prototype, "clickableBeadIds", void 0);
