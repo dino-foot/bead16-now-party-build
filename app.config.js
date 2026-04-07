@@ -41,7 +41,13 @@ const server = defineServer({
      */
     routes: createRouter({
         version: createEndpoint("/version", { method: "GET" }, async (ctx) => {
-            return { version: "0.0.8" };
+            return {
+                version: "0.0.9",
+                timestamp: new Date().toISOString(),
+                versionInfo: {
+                    "releaseNote": "Bead indicator added"
+                }
+            };
         })
     }),
     /**
@@ -56,7 +62,8 @@ const server = defineServer({
          */
         if (process.env.SAMPLE !== "production") {
             app.use("/", playground());
-            // server.simulateLatency(200); //? Simulate 200ms latency for all routes (for testing purposes)
+            // simulate 200ms latency between server and client.
+            // server.simulateLatency(200);
         }
         /**
          * Use @colyseus/monitor
