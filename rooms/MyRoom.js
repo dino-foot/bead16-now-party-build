@@ -51,7 +51,8 @@ export class MyRoom extends Room {
         // }
         const playfabId = options?.playfabId; // todo do sanity check on playfabId format 
         if (!playfabId) {
-            throw new Error("Authentication failed: No playfabId provided. ", options);
+            // throw new Error("Authentication failed: No playfabId provided. ", options);
+            console.warn("[AUTH] warning: No playfabId provided. ", options);
         }
         // Check if the player is already in ANY room managed by this process
         // if (activePlayers.has(playfabId)) {
@@ -68,14 +69,23 @@ export class MyRoom extends Room {
         });
         // 1. Initialize the state here
         this.state = new Bead16RoomState();
+        // Notify the only player to start a local bot match
         this.dummyPlayerTimer = this.clock.setTimeout(() => {
             if (this.clients.length === 1) {
-                // 1. Notify the only player to start a local bot match
+                // isFull: true,  so that it prevenet accidental matchmaking with other real players while the dummy player timer is running
+                this.lock(); //? v0.0.9 [shohan-hotfix] lock the room to prevent new players from joining while waiting for dummy player timer
+                // 3. Update Metadata so it disappears from the /viewers list
+                this.setMetadata({
+                    ...this.metadata,
+                    isFull: true,
+                    isGameOver: true // This ensures your Express route filters it out
+                });
                 this.broadcast("START_DUMMY_MATCH", { reason: "timeout" });
-                const dummyPlayer = this.state.players.get(this.clients[0].sessionId);
-                console.log('START_DUMMY_MATCH for client:', dummyPlayer.name);
+                console.log('START_DUMMY_MATCH');
                 // 2. Close the room on the server to save resources
-                this.disconnect();
+                this.clock.setTimeout(() => {
+                    this.disconnect();
+                }, 500);
             }
         }, DUMMY_PLAYER_TIME_MS);
         //? get beadId from unity on bead click
@@ -189,21 +199,18 @@ export class MyRoom extends Room {
         }, 100);
         //? 0.0.8 [shohan-hotfix]
         //? [DEBUG] GAMEOVER after 60 seconds for testing
-        // if (process.env.DEBUG == "shohan") {
-        //     this.clock.setTimeout(() => {
-        //         const playerIds = Array.from(this.state.players.keys());
-        //         const p1 = this.state.players.get(playerIds[0]);
-        //         this.state.gameState.endGame(p1.playfabId);
-        //         console.log("[DEBUG] Game status set to END after 60 seconds.");
-        //     }, 60000);
-        // }
+        // this.clock.setTimeout(() => {
+        //   const playerIds = Array.from(this.state.players.keys());
+        //   const p1 = this.state.players.get(playerIds[0]);
+        //   this.state.gameState.endGame(p1.playfabId);
+        //   console.log("[DEBUG] Game status set to END after 60 seconds.");
+        // }, 60000);
     }
     update(deltaTime) {
         const game = this.state.gameState;
         // Only check if a game is actually in progress
         if (!game || game.gameStatus === "END") {
             // console.log("[GAMEOVER] - Cleaning up room...");
-            // if (process.env.DEBUG == "shohan") {
             //? 0.0.8 [shohan-hotfix]
             const remainingActive = Array.from(this.state.players.values()).filter(p => !p.disconnected).length;
             if (remainingActive === 0) {
@@ -220,7 +227,6 @@ export class MyRoom extends Room {
                     this.disconnect();
                 }, 90000);
             }
-            // }
             return;
         }
         if (Date.now() >= game.turnEndsAt) {
@@ -232,7 +238,7 @@ export class MyRoom extends Room {
         }
     } // end update
     async onDrop(client) {
-        this.allowReconnection(client, 60); // allow the client to reconnect within 60 seconds [will not work for unity]
+        this.allowReconnection(client, 30); // allow the client to reconnect within 30 seconds
         const player = this.state.players.get(client.sessionId);
         if (player) {
             player.disconnected = true;
