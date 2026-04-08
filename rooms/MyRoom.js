@@ -85,7 +85,7 @@ export class MyRoom extends Room {
                 // 2. Close the room on the server to save resources
                 this.clock.setTimeout(() => {
                     this.disconnect();
-                }, 500);
+                }, 2000);
             }
         }, DUMMY_PLAYER_TIME_MS);
         //? get beadId from unity on bead click
