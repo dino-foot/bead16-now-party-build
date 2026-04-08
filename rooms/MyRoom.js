@@ -73,19 +73,22 @@ export class MyRoom extends Room {
         this.dummyPlayerTimer = this.clock.setTimeout(() => {
             if (this.clients.length === 1) {
                 // isFull: true,  so that it prevenet accidental matchmaking with other real players while the dummy player timer is running
-                this.lock(); //? v0.0.9 [shohan-hotfix] lock the room to prevent new players from joining while waiting for dummy player timer
+                // this.lock(); //? v0.0.9 [shohan-hotfix] lock the room to prevent new players from joining while waiting for dummy player timer
                 // 3. Update Metadata so it disappears from the /viewers list
                 this.setMetadata({
                     ...this.metadata,
                     isFull: true,
-                    isGameOver: true // This ensures your Express route filters it out
+                    // isGameOver: true // This ensures your Express route filters it out
                 });
+
                 this.broadcast("START_DUMMY_MATCH", { reason: "timeout" });
                 console.log('START_DUMMY_MATCH');
+                this.disconnect();
+
                 // 2. Close the room on the server to save resources
-                this.clock.setTimeout(() => {
-                    this.disconnect();
-                }, 2000);
+                // this.clock.setTimeout(() => {
+                //     this.disconnect();
+                // }, 2000);
             }
         }, DUMMY_PLAYER_TIME_MS);
         //? get beadId from unity on bead click
