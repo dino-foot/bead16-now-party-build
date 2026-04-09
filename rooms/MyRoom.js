@@ -44,11 +44,6 @@ export class MyRoom extends Room {
     }
     // static SERVER_VERSION = "0.0.1";
     async onAuth(client, options) {
-        console.log("[AUTH]", options);
-        // 1. VERSION CHECK: Reject clients with mismatching versions
-        // if (options.version !== MyRoom.SERVER_VERSION) {
-        //   throw new Error(`Version mismatch! Server: ${MyRoom.SERVER_VERSION}, Client: ${options.version || "none"}`);
-        // }
         const playfabId = options?.playfabId; // todo do sanity check on playfabId format 
         if (!playfabId) {
             // throw new Error("Authentication failed: No playfabId provided. ", options);
