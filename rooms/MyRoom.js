@@ -77,11 +77,10 @@ export class MyRoom extends Room {
                 });
                 this.broadcast("START_DUMMY_MATCH", { reason: "timeout" });
                 console.log('START_DUMMY_MATCH');
-                this.disconnect();
-                // // 2. Close the room on the server to save resources
-                // this.clock.setTimeout(() => {
-                //     this.disconnect();
-                // }, 1000);
+                // this.disconnect();
+                this.clock.setTimeout(() => {
+                    this.disconnect();
+                }, 300);
             }
         }, DUMMY_PLAYER_TIME_MS);
         //? get beadId from unity on bead click
