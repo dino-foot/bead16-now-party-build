@@ -63,7 +63,7 @@ const server = defineServer({
         if (process.env.SAMPLE !== "production") {
             app.use("/", playground());
             // simulate 200ms latency between server and client.
-            server.simulateLatency(200);
+            // server.simulateLatency(200);
         }
         /**
          * Use @colyseus/monitor
