@@ -202,7 +202,7 @@ export class MyRoom extends Room {
         const game = this.state.gameState;
         // Only check if a game is actually in progress
         if (!game || game.gameStatus === "END") {
-            console.log("[GAMEOVER] - Cleaning up room...");
+            // console.log("[GAMEOVER] - Cleaning up room...");
             //? 0.0.8 [shohan-hotfix]
             const remainingActive = Array.from(this.state.players.values()).filter(p => !p.disconnected).length;
             if (remainingActive === 0) {
@@ -217,7 +217,7 @@ export class MyRoom extends Room {
                     console.log("[GAMEOVER] 90s passed. Disconnecting all clients.");
                     this.state.players.forEach(p => activePlayers.delete(p.playfabId));
                     this.disconnect();
-                }, 90000);
+                }, 60000);
             }
             return;
         }
@@ -266,7 +266,7 @@ export class MyRoom extends Room {
             console.log(`Player ${player.name} [LEFT UNEXPECTEDLY RECONNECTING ...]. Close code: ${code}`);
             try {
                 // Wait for reconnection
-                await this.allowReconnection(client, 45);
+                await this.allowReconnection(client, 30);
                 player.disconnected = false;
                 console.log(`[RECONNECTED] ${player.name} restored.`);
                 return; // Don't clean up, client is back
