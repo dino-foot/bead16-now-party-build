@@ -55,13 +55,12 @@ export class GameState extends Schema {
         // console.log(`Spawned bead ${id} for player ${ownerId} at index ${index}`);
     }
     updateMoveableBeads() {
-        this.clickableBeadIds.clear(); //? v0.0.9
+        this.clickableBeadIds.clear();
         this.allBeads.forEach(bead => {
             if (bead.isAlive && bead.ownerPlayfabId === this.currentTurn) {
                 const moves = this.getValidMovesForBead(bead.id);
                 bead.isMoveable = moves.length > 0;
                 // add to clickable list if moveable for highlight in unity
-                //? v0.0.9
                 if (bead.isMoveable) {
                     this.clickableBeadIds.push(bead.id);
                 }
