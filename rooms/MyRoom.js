@@ -75,7 +75,7 @@ export class MyRoom extends Room {
                 console.log('START_DUMMY_MATCH');
                 this.clock.setTimeout(() => {
                     this.disconnect();
-                }, 500);
+                }, 150);
             }
         }, DUMMY_PLAYER_TIME_MS);
         //? get beadId from unity on bead click
