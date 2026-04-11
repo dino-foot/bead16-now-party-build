@@ -5,6 +5,7 @@ import {
 } from "colyseus";
 import { Bead16QueueRoom } from "./rooms/Bead16QueueRoom.js";
 import basicAuth from "express-basic-auth";
+import { WebSocketTransport } from "@colyseus/ws-transport";
 /**
  * Import your Room files
  */
@@ -19,6 +20,11 @@ const basicAuthMiddleware = basicAuth({
     challenge: true
 });
 const server = defineServer({
+    transport: new WebSocketTransport({
+        pingInterval: 5000,
+        pingMaxRetries: 6,
+        maxPayload: 1024 * 10, // 10KB Max Payload
+    }),
     /**
      * Define your room handlers:
      */
@@ -42,10 +48,10 @@ const server = defineServer({
     routes: createRouter({
         version: createEndpoint("/version", { method: "GET" }, async (ctx) => {
             return {
-                version: "0.1.0",
+                version: "0.0.9",
                 timestamp: new Date().toISOString(),
                 versionInfo: {
-                    "releaseNote": "dummy match improved \n reconnect logic added"
+                    "releaseNote": "dummy match improved | reconnect logic added"
                 }
             };
         })
