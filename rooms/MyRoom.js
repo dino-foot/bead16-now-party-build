@@ -9,6 +9,7 @@ import { MapSchema, Schema, type } from "@colyseus/schema";
 import { GameState } from "./game/GameState.js";
 import { Player } from "./game/Bead16Schemas.js";
 import { DEFAULT_AVATAR_ID, DEFAULT_AVATAR_URL, DEFAULT_BEAD_ID, DEFAULT_ENTRY_FEE, DEFAULT_COUNTRY, DEFAULT_FRAME_ID, DUMMY_PLAYER_TIME_MS, MATCH_COMMISSION } from "./Constants/Global.js";
+import { ChatHandler } from "./chat/ChatHandler.js";
 class Bead16RoomState extends Schema {
     constructor() {
         super(...arguments);
@@ -57,8 +58,9 @@ export class MyRoom extends Room {
             entryFee: options.entryFee || 1000,
             gameId: options.gameId,
         });
-        // 1. Initialize the state here
+        //? Initialize the state and Chat here
         this.state = new Bead16RoomState();
+        this.chatHandler = new ChatHandler(this);
         // Notify the only player to start a local bot match
         this.dummyPlayerTimer = this.clock.setTimeout(() => {
             // wait 10 seconds for a 2nd valid player to join before starting dummy match
@@ -69,7 +71,7 @@ export class MyRoom extends Room {
                 this.setMetadata({
                     ...this.metadata,
                     isFull: true,
-                    isGameOver: true // This ensures your Express route filters it out
+                    // isGameOver: true // This ensures your Express route filters it out
                 });
                 this.broadcast("START_DUMMY_MATCH", { reason: "timeout" });
                 console.log('START_DUMMY_MATCH');
@@ -110,34 +112,50 @@ export class MyRoom extends Room {
             console.log("[CURRENT TURN] ", player.name, data);
             this.state.gameState.moveBead(bead.ownerPlayfabId, beadId, toIndex);
         }); // end onMessage
+        this.chatHandler.setup(); // Initialize chat message handlers
     } // end onCreate
-    onJoin(client, options) {
+    async onJoin(client, options) {
         //? no valid playfab id [start dummy match immediately]
         if (!options?.isSpectator && !options?.playfabId) {
             client.send("START_DUMMY_MATCH", { reason: "invalid playfabid" });
-            console.log('[PLAYFAB ID NULL] START_DUMMY_MATCH IMMEDIATELY');
-            this.clock.setTimeout(() => {
-                client.leave(CloseCode.CONSENTED);
-            }, 2000);
+            console.log('[PLAYFAB ID INVALID] START_DUMMY_MATCH IMMEDIATELY');
+            this.clock.setTimeout(() => { client.leave(CloseCode.CONSENTED); }, 2000);
             return;
         }
-        // init player object
+        // [found valid playfab id] init player object
         const player = new Player();
-        // Identify Role
-        const activePlayerCount = Array.from(this.state.players.values()).filter(p => !p.isSpectator).length;
-        if (options.isSpectator || activePlayerCount >= 2) {
-            player.isSpectator = true;
-            player.seat = -1; // No seat for spectators
-            console.log(`Player ${options.playfabId} joined as [SPECTATOR].`);
-        }
-        else {
-            player.isSpectator = false;
-            player.seat = activePlayerCount; // Assign seat 0 or 1
-            console.log(`Player ${options.playfabId} joined as [ACTIVE PLAYER].`);
-        }
-        //? init common player properties
         player.colyseusId = client.sessionId;
         player.playfabId = options?.playfabId;
+        player.isSpectator = options?.isSpectator;
+        // Register the playfab id of player
+        this.state.players.set(client.sessionId, player);
+        activePlayers.add(player.playfabId);
+        const allPlayers = Array.from(this.state.players.values());
+        const realPlayers = allPlayers.filter(p => !p.isSpectator);
+        if (realPlayers.length === 2) {
+            // await this.lock(); // Lock the room to prevent more players from joining while we set up the game
+            this.dummyPlayerTimer?.clear(); // Cancel the bot timer if a real second player joins
+            this.setMetadata({
+                ...this.metadata,
+                isFull: true, // for room listing filter [once true removed from public matchmaking]
+            });
+        }
+        if (options.isSpectator) { // options.isSpectator || 
+            player.seat = -1; // No seat for spectators
+            console.log(`Player ${options.playerName} joined as [SPECTATOR].`);
+        }
+        else {
+            // If 3rd player somehow enters before lock, start dummy match for him
+            if (realPlayers.length > 2) {
+                client.send("START_DUMMY_MATCH", { reason: "room full" });
+                console.log('[PLAYFAB ID VALID] START_FALLBACK_DUMMY_MATCH ROOM FULL');
+                this.clock.setTimeout(() => { client.leave(CloseCode.CONSENTED); }, 2000);
+                return;
+            }
+            player.seat = realPlayers.length - 1; // 0 for first, 1 for second
+            console.log(`Player ${options.playerName} joined as [ACTIVE PLAYER].`);
+        }
+        //? init common player properties
         player.name = options?.playerName ?? "Player " + (this.state.players.size + 1);
         player.coins = options?.coins ?? 0;
         player.country = options?.country ?? DEFAULT_COUNTRY;
@@ -145,52 +163,41 @@ export class MyRoom extends Room {
         player.avatarUrl = options?.avatarUrl ?? DEFAULT_AVATAR_URL;
         player.beadItemId = options?.beadItemId ?? DEFAULT_BEAD_ID;
         player.frameItemId = options?.frameItemId ?? DEFAULT_FRAME_ID;
-        // player.seat = this.state.players.size;
         player.disconnected = false;
-        activePlayers.add(player.playfabId); // Register the playfab id of player
-        this.state.players.set(client.sessionId, player);
         if (this.state.host == null && !player.isSpectator) {
             this.state.host = player;
             const entryFee = options?.entryFee ?? DEFAULT_ENTRY_FEE;
             this.state.totalEntryFees = entryFee * 2;
             this.state.winnerFees = this.state.totalEntryFees * (1 - MATCH_COMMISSION); //? 1600 for 1000 entry fee and 20% commission
         }
-        // 5. Matchmaking Lock & Game Start
-        const currentRealPlayers = Array.from(this.state.players.values()).filter(p => !p.isSpectator);
-        if (currentRealPlayers.length === 2) {
-            this.dummyPlayerTimer.clear(); // Cancel the bot timer if a real second player joins
+        if (realPlayers.length === 2) {
             this.setMetadata({
                 ...this.metadata,
                 isFull: true, // for room listing filter [once true removed from public matchmaking]
                 hostName: this.state.host?.name ?? "Host",
                 hostAvatarId: this.state.host?.avatarId ?? "0",
-                p1CountryID: currentRealPlayers[0]?.country,
-                p2CountryID: currentRealPlayers[1]?.country
+                p1CountryID: realPlayers[0]?.country,
+                p2CountryID: realPlayers[1]?.country
             });
             //? gameStatus = MATCHED, delay = 5 seconds, then START game
-            // todo if we want to be really precise, we should set gameStatus = "START" immediately when the 2nd player joins, 
-            // then have the client side listen for that and trigger a countdown timer UI, and then start the game when the countdown ends.
-            // This way if the 2nd player has high ping and takes a few seconds to receive the message that they joined, the game will still start at the same time for both players. 
-            // Right now with this implementation, if the 2nd player has high ping, they might see a delay between when they join and when the game actually starts.
+            // if we want to be really precise, we should set gameStatus = "START" immediately when the 2nd player joins
             if (!this.state.gameState) {
-                const Player1 = currentRealPlayers[0];
-                const Player2 = currentRealPlayers[1];
+                const Player1 = realPlayers[0];
+                const Player2 = realPlayers[1];
                 this.state.gameState = new GameState(Player1, Player2);
                 this.state.gameState.gameStatus = "MATCHED";
+                // await this.unlock();  // Unlock the room so spectators can join after the game starts
                 this.clock.setTimeout(() => {
-                    // This function should change status to "START" and set up beads
+                    // this.unlock();
                     this.startGame();
                 }, 2000);
             }
         }
-        // if (this.state.players.size === 8) {
-        //   this.lock(); // prevent any new players from joining
-        // }
+        // Send chat history to the newly joined player
+        this.chatHandler.sendHistory(client);
     } // end onJoin
     startGame() {
         console.log("Both players joined! Initializing game state...");
-        // const playerIds = Array.from(this.state.players.keys());
-        // const Player1 = this.state.players.get(playerIds[0]);
         this.state.gameState.gameStatus = "START";
         this.state.gameState.setNextTurnTimestamp(); // start initial timer
         // Run the game loop 10 times per second
@@ -202,7 +209,6 @@ export class MyRoom extends Room {
         const game = this.state.gameState;
         // Only check if a game is actually in progress
         if (!game || game.gameStatus === "END") {
-            // console.log("[GAMEOVER] - Cleaning up room...");
             //? 0.0.8 [shohan-hotfix]
             const remainingActive = Array.from(this.state.players.values()).filter(p => !p.disconnected).length;
             if (remainingActive === 0) {
@@ -211,10 +217,11 @@ export class MyRoom extends Room {
             }
             //? 0.0.8 [shohan-hotfix]
             if (!this.metadata?.isGameOver) {
+                console.log("[GAMEOVER] - Cleaning up room...");
                 this.setMetadata({ ...this.metadata, isGameOver: true }); // for room spectators filter
                 // Start the final countdown to room disposal
                 this.clock.setTimeout(() => {
-                    console.log("[GAMEOVER] 90s passed. Disconnecting all clients.");
+                    console.log("[GAMEOVER] 60s passed. Disconnecting all clients.");
                     this.state.players.forEach(p => activePlayers.delete(p.playfabId));
                     this.disconnect();
                 }, 60000);
@@ -234,10 +241,33 @@ export class MyRoom extends Room {
         const player = this.state.players.get(client.sessionId);
         if (!player)
             return;
-        // player.disconnected = true;
+        player.disconnected = true;
         console.log(`[CONNECTION DROPPED] Player ${player.name}. Close code: ${code}`);
+        try {
+            // Wait for reconnection
+            await this.allowReconnection(client, 60);
+            player.disconnected = false;
+            console.log(`[RECONNECTED] ${player.name} restored.`);
+            return; // Don't clean up, client is back
+        }
+        catch (e) {
+            // Reconnection failed or timed out
+            console.log(`[RECONNECT FAILED] player ${player.name}`);
+            activePlayers.delete(player.playfabId);
+            this.state.players.delete(client.sessionId);
+            // client.leave(CloseCode.CONSENTED);
+
+            // Reassign Host if needed
+            if (this.state.host === player) {
+                const nextPlayer = Array.from(this.state.players.values()).find(p => !p.isSpectator);
+                this.state.host = nextPlayer || null;
+            }
+        }
+        // if (code !== CloseCode.CONSENTED) { // unexpected disconnect, attempt reconnection before cleaning up
+        //   console.log(`Player ${player.name} [LEFT UNEXPECTEDLY RECONNECTING ...]. Close code: ${code}`);
+        // }
     }
-    onReconnect(client) {
+    async onReconnect(client) {
         const player = this.state.players.get(client.sessionId);
         if (player) {
             player.disconnected = false;
@@ -247,40 +277,19 @@ export class MyRoom extends Room {
     //? if a player leave do autoplay if atleast 1 player in the room
     async onLeave(client, code) {
         const player = this.state.players.get(client.sessionId);
-        console.log(`[ONLEAVE] players-map ${client.sessionId} | ${player?.playfabId} | close code ${code}`);
+        console.log(`[ONLEAVE] player ${client.sessionId} | ${player?.playfabId} | Close code ${code}`);
         if (!player)
             return;
         // normal leave, we can skip reconnection logic and clean up immediately
         if (code === CloseCode.CONSENTED) {
             console.log(`Player ${player.name} [LEFT WITH CONSENT]. Close code: ${code}`);
-            activePlayers.delete(player.playfabId); // Remove from tracking
             player.disconnected = true;
+            activePlayers.delete(player.playfabId); // Remove from tracking
             this.state.players.delete(client.sessionId);
             // if the player is the host, assign a new host
             if (this.state.host === player && this.state.players.size > 0) {
                 const nextPlayer = Array.from(this.state.players.values()).find(p => !p.isSpectator);
                 this.state.host = nextPlayer || null;
-            }
-        }
-        else if (code !== CloseCode.CONSENTED) { // unexpected disconnect, attempt reconnection before cleaning up
-            console.log(`Player ${player.name} [LEFT UNEXPECTEDLY RECONNECTING ...]. Close code: ${code}`);
-            try {
-                // Wait for reconnection
-                await this.allowReconnection(client, 30);
-                player.disconnected = false;
-                console.log(`[RECONNECTED] ${player.name} restored.`);
-                return; // Don't clean up, client is back
-            }
-            catch (e) {
-                // Reconnection failed or timed out
-                console.log(`[RECONNECT FAILED] Removing player ${player.name}`);
-                activePlayers.delete(player.playfabId);
-                this.state.players.delete(client.sessionId);
-                // Reassign Host if needed
-                if (this.state.host === player) {
-                    const nextPlayer = Array.from(this.state.players.values()).find(p => !p.isSpectator);
-                    this.state.host = nextPlayer || null;
-                }
             }
         }
         //? p1/p2 (1) player left keep autoplaying, if both players left even though room has [SPECTATORS] disconnect the room
