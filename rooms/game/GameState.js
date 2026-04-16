@@ -263,7 +263,10 @@ export class GameState extends Schema {
     endGame(winnerId) {
         this.gameStatus = "END";
         this.winnerPlayerfabId = winnerId ?? "";
-        console.log(`[GAME OVER] Winner: ${winnerId ?? "DRAW"}`);
+        const winnerPlayer = this.players.find(p => p.playfabId === this.winnerPlayerfabId);
+        console.log(`[GAME OVER] Winner PlayfabId : ${winnerId ?? "DRAW"}`);
+        console.log(`[SCORE] ${this.players[0]?.name} = ${this.players[0]?.score} | ${this.players[1]?.name} = ${this.players[1]?.score}`);
+        console.log(`[WINNER] ${winnerPlayer?.name} | ${winnerPlayer?.score} | playfabid ${winnerPlayer?.playfabId}`);
         // stop timer
         this.turnEndsAt = 0;
         // prevent further interaction
