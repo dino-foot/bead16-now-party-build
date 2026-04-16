@@ -25,6 +25,9 @@ const server = defineServer({
         pingMaxRetries: 6,
         maxPayload: 1024 * 10, // 10KB Max Payload
     }),
+    //? note
+    // When you call setPrivate(true), the room is removed from the "Joinable" pool used by joinOrCreate. 
+    // Only players who have the specific Room ID (the 4-digit code) can enter using joinById
     /**
      * Define your room handlers:
      */
@@ -48,10 +51,10 @@ const server = defineServer({
     routes: createRouter({
         version: createEndpoint("/version", { method: "GET" }, async (ctx) => {
             return {
-                version: "0.0.9",
+                version: "0.1.2",
                 timestamp: new Date().toISOString(),
                 versionInfo: {
-                    "releaseNote": "dummy match improved | reconnect logic added"
+                    "releaseNote": "chat and nodejs version 22.22"
                 }
             };
         })
@@ -80,7 +83,7 @@ const server = defineServer({
         //? get spectator available rooms
         app.get("/viewers", async (req, res) => {
             try {
-                // Query for rooms that aren't private
+                //? Query for rooms that aren't private
                 const rooms = await matchMaker.query({
                     name: "my_room", // Only show your game rooms
                     private: false // Ensure they aren't hidden
