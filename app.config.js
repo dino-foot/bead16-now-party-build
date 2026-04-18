@@ -51,10 +51,10 @@ const server = defineServer({
     routes: createRouter({
         version: createEndpoint("/version", { method: "GET" }, async (ctx) => {
             return {
-                version: "0.1.2",
+                version: "0.1.3",
                 timestamp: new Date().toISOString(),
                 versionInfo: {
-                    "releaseNote": "chat and nodejs version 22.22"
+                    "releaseNote": "faster autoplay, chat improved, onleave disconnect=true"
                 }
             };
         })
