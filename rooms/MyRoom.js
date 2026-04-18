@@ -8,7 +8,7 @@ import { Room, CloseCode } from "@colyseus/core";
 import { MapSchema, Schema, type } from "@colyseus/schema";
 import { GameState } from "./game/GameState.js";
 import { Player } from "./game/Bead16Schemas.js";
-import { DEFAULT_AVATAR_ID, DEFAULT_AVATAR_URL, DEFAULT_BEAD_ID, DEFAULT_ENTRY_FEE, DEFAULT_COUNTRY, DEFAULT_FRAME_ID, DUMMY_PLAYER_TIME_MS, MATCH_COMMISSION } from "./Constants/Global.js";
+import { DEFAULT_AVATAR_ID, DEFAULT_AVATAR_URL, DEFAULT_BEAD_ID, DEFAULT_ENTRY_FEE, DEFAULT_COUNTRY, DEFAULT_FRAME_ID, DUMMY_PLAYER_TIME_MS, MATCH_COMMISSION, DEFAULT_TURN_TIME, FAST_AUTOPLAY_TIME_MS } from "./Constants/Global.js";
 import { ChatHandler } from "./chat/ChatHandler.js";
 class Bead16RoomState extends Schema {
     constructor() {
@@ -35,7 +35,7 @@ __decorate([
     type("number")
 ], Bead16RoomState.prototype, "winnerFees", void 0);
 // Outside your class definition to persist across all room instances
-const activePlayers = new Set(); // number of players are playing now [ it will track only playfab ids of active players]
+// const activePlayers = new Set<string>(); // number of players are playing now [ it will track only playfab ids of active players]
 export class MyRoom extends Room {
     constructor() {
         super(...arguments);
@@ -129,7 +129,6 @@ export class MyRoom extends Room {
         player.isSpectator = options?.isSpectator;
         // Register the playfab id of player
         this.state.players.set(client.sessionId, player);
-        activePlayers.add(player.playfabId);
         const allPlayers = Array.from(this.state.players.values());
         const realPlayers = allPlayers.filter(p => !p.isSpectator);
         if (realPlayers.length === 2) {
@@ -222,17 +221,26 @@ export class MyRoom extends Room {
                 // Start the final countdown to room disposal
                 this.clock.setTimeout(() => {
                     console.log("[GAMEOVER] 60s passed. Disconnecting all clients.");
-                    this.state.players.forEach(p => activePlayers.delete(p.playfabId));
                     this.disconnect();
                 }, 60000);
             }
             return;
         }
-        if (Date.now() >= game.turnEndsAt) {
-            console.log("[LOOP] Turn timeout for:", game.currentTurn);
-            const moved = game.performAutoplay();
-            if (!moved) {
-                game.switchTurn();
+        //? new [v0.1.3] faster autoplay time
+        // 2. Identify the player whose turn it is
+        const currentPlayer = Array.from(this.state.players.values()).find(p => p.playfabId === game.currentTurn && !p.isSpectator);
+        const now = Date.now();
+        if (currentPlayer) {
+            const isTimeout = now >= game.turnEndsAt;
+            // Calculate if they've been disconnected for 10s this turn
+            // (Total Duration - Time Left = Time Elapsed)
+            const isFastAutoplay = currentPlayer.disconnected && (DEFAULT_TURN_TIME * 1000 - (game.turnEndsAt - now)) >= FAST_AUTOPLAY_TIME_MS;
+            if (isTimeout || isFastAutoplay) {
+                console.log(`[AUTOPLAY] Reason: ${isTimeout ? 'Timeout' : 'Disconnect'} | Player: ${currentPlayer.name}`);
+                const moved = game.performAutoplay();
+                if (!moved) {
+                    game.switchTurn();
+                }
             }
         }
     } // end update
@@ -247,16 +255,14 @@ export class MyRoom extends Room {
             // Wait for reconnection
             await this.allowReconnection(client, 60);
             player.disconnected = false;
-            console.log(`[RECONNECTED] ${player.name} restored.`);
+            console.log(`[RECONNECTED] ${player?.name} restored.`);
             return; // Don't clean up, client is back
         }
         catch (e) {
             // Reconnection failed or timed out
-            console.log(`[RECONNECT FAILED] player ${player.name}`);
-            activePlayers.delete(player.playfabId);
-            this.state.players.delete(client.sessionId);
-            // client.leave(CloseCode.CONSENTED);
-
+            console.log(`[RECONNECT FAILED] player ${player?.name}`);
+            // this.state.players.delete(client.sessionId);
+            client.leave(CloseCode.CONSENTED);
             // Reassign Host if needed
             if (this.state.host === player) {
                 const nextPlayer = Array.from(this.state.players.values()).find(p => !p.isSpectator);
@@ -272,20 +278,21 @@ export class MyRoom extends Room {
         if (player) {
             player.disconnected = false;
         }
-        console.log("[RECONNECTED] ", player.name);
+        console.log("[RECONNECTED] ", player?.name);
     }
     //? if a player leave do autoplay if atleast 1 player in the room
     async onLeave(client, code) {
         const player = this.state.players.get(client.sessionId);
-        console.log(`[ONLEAVE] player ${client.sessionId} | ${player?.playfabId} | Close code ${code}`);
+        console.log(`[ONLEAVE] player ${client.sessionId} | ${player?.name} | Close code ${code}`);
         if (!player)
             return;
         // normal leave, we can skip reconnection logic and clean up immediately
         if (code === CloseCode.CONSENTED) {
             console.log(`Player ${player.name} [LEFT WITH CONSENT]. Close code: ${code}`);
             player.disconnected = true;
-            activePlayers.delete(player.playfabId); // Remove from tracking
-            this.state.players.delete(client.sessionId);
+            if (player.isSpectator) {
+                this.state.players.delete(client.sessionId);
+            }
             // if the player is the host, assign a new host
             if (this.state.host === player && this.state.players.size > 0) {
                 const nextPlayer = Array.from(this.state.players.values()).find(p => !p.isSpectator);
@@ -293,7 +300,7 @@ export class MyRoom extends Room {
             }
         }
         //? p1/p2 (1) player left keep autoplaying, if both players left even though room has [SPECTATORS] disconnect the room
-        const activePlayerCount = Array.from(this.state.players.values()).filter(p => !p.isSpectator).length;
+        const activePlayerCount = Array.from(this.state.players.values()).filter(p => !p.isSpectator && !p.disconnected).length;
         if (activePlayerCount === 0) {
             console.log("[NO_ACTIVE_PLAYERS] No players left. Closing room for spectators...");
             this.broadcast("NO_ACTIVE_PLAYERS", { reason: "All Players Left" }); // to handle spectator client side
@@ -304,7 +311,7 @@ export class MyRoom extends Room {
     } // end
     async onDispose() {
         // Safety: ensure all players in this room are cleared if room is destroyed
-        this.state.players.forEach(p => activePlayers.delete(p.playfabId));
+        // this.state.players.forEach(p => activePlayers.delete(p.playfabId));
         console.log("[ROOM DISPOSED], cleared active player tracking.");
     }
 }
