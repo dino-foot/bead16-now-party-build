@@ -10,6 +10,7 @@ import { WebSocketTransport } from "@colyseus/ws-transport";
  * Import your Room files
  */
 import { MyRoom } from "./rooms/MyRoom.js";
+import { MAX_CLIENTS, MAX_PLAYERS } from "./rooms/Constants/Global.js";
 const basicAuthMiddleware = basicAuth({
     // list of users and passwords
     users: {
@@ -51,10 +52,10 @@ const server = defineServer({
     routes: createRouter({
         version: createEndpoint("/version", { method: "GET" }, async (ctx) => {
             return {
-                version: "0.1.3",
+                version: "0.1.5",
                 timestamp: new Date().toISOString(),
                 versionInfo: {
-                    "releaseNote": "faster autoplay, chat improved, onleave disconnect=true"
+                    "releaseNote": "Bead state versioning | private room | combo effects"
                 }
             };
         })
@@ -72,7 +73,7 @@ const server = defineServer({
         if (process.env.SAMPLE !== "production") {
             app.use("/", playground());
             // simulate 200ms latency between server and client.
-            // server.simulateLatency(200);
+            // server.simulateLatency(100);
         }
         /**
          * Use @colyseus/monitor
@@ -86,12 +87,12 @@ const server = defineServer({
                 //? Query for rooms that aren't private
                 const rooms = await matchMaker.query({
                     name: "my_room", // Only show your game rooms
-                    private: false // Ensure they aren't hidden
+                    // private: false // Remove the 'private: true' constraint to get ALL rooms under this name
                 });
                 // Filter out rooms where clients >= 8 (2 players + 6 spectators)
                 // we cant set 1 player as spectators cause we will run dummy multiplayer for them
-                const joinableRooms = rooms.filter(room => room.clients >= 2 &&
-                    room.clients < 8 &&
+                const joinableRooms = rooms.filter(room => room.clients >= MAX_PLAYERS &&
+                    room.clients < MAX_CLIENTS &&
                     room.metadata?.isGameOver !== true);
                 // Map to a clean JSON response for Unity
                 const response = joinableRooms.map(room => ({
