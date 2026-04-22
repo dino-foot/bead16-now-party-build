@@ -8,8 +8,9 @@ import { Room, CloseCode } from "@colyseus/core";
 import { MapSchema, Schema, type } from "@colyseus/schema";
 import { GameState } from "./game/GameState.js";
 import { Player } from "./game/Bead16Schemas.js";
-import { DEFAULT_AVATAR_ID, DEFAULT_AVATAR_URL, DEFAULT_BEAD_ID, DEFAULT_ENTRY_FEE, DEFAULT_COUNTRY, DEFAULT_FRAME_ID, DUMMY_PLAYER_TIME_MS, MATCH_COMMISSION, DEFAULT_TURN_TIME, FAST_AUTOPLAY_TIME_MS } from "./Constants/Global.js";
+import { DEFAULT_AVATAR_ID, DEFAULT_AVATAR_URL, DEFAULT_BEAD_ID, DEFAULT_ENTRY_FEE, DEFAULT_COUNTRY, DEFAULT_FRAME_ID, DUMMY_PLAYER_TIME_MS, MATCH_COMMISSION, DEFAULT_TURN_TIME, FAST_AUTOPLAY_TIME_MS, MAX_CLIENTS } from "./Constants/Global.js";
 import { ChatHandler } from "./chat/ChatHandler.js";
+import { generateUniqueRoomId, releaseRoomId } from "./utils/GenerateUniqueRoomId.js";
 class Bead16RoomState extends Schema {
     constructor() {
         super(...arguments);
@@ -40,7 +41,7 @@ export class MyRoom extends Room {
     constructor() {
         super(...arguments);
         // room variables
-        this.maxClients = 8; //? 2 + 6 spectators
+        this.maxClients = MAX_CLIENTS;
         this.autoDispose = true;
     }
     async onAuth(client, options) {
@@ -51,7 +52,7 @@ export class MyRoom extends Room {
         }
         return true;
     }
-    onCreate(options) {
+    async onCreate(options) {
         console.log("Game room created ", `${this.roomName}_${this.roomId}`);
         // IMPORTANT: Set metadata so the matchmaker can "see" the room requirements
         this.setMetadata({
@@ -61,25 +62,33 @@ export class MyRoom extends Room {
         //? Initialize the state and Chat here
         this.state = new Bead16RoomState();
         this.chatHandler = new ChatHandler(this);
-        // Notify the only player to start a local bot match
-        this.dummyPlayerTimer = this.clock.setTimeout(() => {
-            // wait 10 seconds for a 2nd valid player to join before starting dummy match
-            const realPlayers = Array.from(this.state.players.values()).filter(p => !p.isSpectator);
-            if (realPlayers.length === 1) {
-                this.lock();
-                // 3. Update Metadata so it disappears from the /viewers list
-                this.setMetadata({
-                    ...this.metadata,
-                    isFull: true,
-                    // isGameOver: true // This ensures your Express route filters it out
-                });
-                this.broadcast("START_DUMMY_MATCH", { reason: "timeout" });
-                console.log('START_DUMMY_MATCH');
-                this.clock.setTimeout(() => {
-                    this.disconnect();
-                }, 150);
-            }
-        }, DUMMY_PLAYER_TIME_MS);
+        if (options.isPrivate) {
+            // private room [play with friend]
+            this.setPrivate(true);
+            // generate 4 digit unique room id and save to presence for express route to query and join
+            this.roomId = await generateUniqueRoomId(this.presence);
+        }
+        else {
+            // Notify the only player to start a local bot match | for public room only
+            this.dummyPlayerTimer = this.clock.setTimeout(() => {
+                // wait 10 seconds for a 2nd valid player to join before starting dummy match
+                const realPlayers = Array.from(this.state.players.values()).filter(p => !p.isSpectator);
+                if (realPlayers.length === 1) {
+                    this.lock();
+                    // 3. Update Metadata so it disappears from the /viewers list
+                    this.setMetadata({
+                        ...this.metadata,
+                        isFull: true,
+                        // isGameOver: true // This ensures your Express route filters it out
+                    });
+                    this.broadcast("START_DUMMY_MATCH", { reason: "timeout" });
+                    console.log('START_DUMMY_MATCH');
+                    this.clock.setTimeout(() => {
+                        this.disconnect();
+                    }, 150);
+                }
+            }, DUMMY_PLAYER_TIME_MS);
+        }
         //? get beadId from unity on bead click
         this.onMessage("getMoves", (client, data) => {
             const player = this.state.players.get(client.sessionId);
@@ -118,7 +127,7 @@ export class MyRoom extends Room {
         //? no valid playfab id [start dummy match immediately]
         if (!options?.isSpectator && !options?.playfabId) {
             client.send("START_DUMMY_MATCH", { reason: "invalid playfabid" });
-            console.log('[PLAYFAB ID INVALID] START_DUMMY_MATCH IMMEDIATELY');
+            console.log('[PLAYFAB ID INVALID] START_DUMMY_MATCH IMMEDIATELY', options);
             this.clock.setTimeout(() => { client.leave(CloseCode.CONSENTED); }, 2000);
             return;
         }
@@ -312,6 +321,7 @@ export class MyRoom extends Room {
     async onDispose() {
         // Safety: ensure all players in this room are cleared if room is destroyed
         // this.state.players.forEach(p => activePlayers.delete(p.playfabId));
+        await releaseRoomId(this.presence, this.roomId);
         console.log("[ROOM DISPOSED], cleared active player tracking.");
     }
 }
