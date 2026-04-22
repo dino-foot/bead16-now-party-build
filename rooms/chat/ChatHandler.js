@@ -25,7 +25,7 @@ export class ChatHandler {
                 if (this.chatHistory.length > this.MAX_HISTORY)
                     this.chatHistory.shift();
             }
-            console.log(`[ON SEND_CHAT] chat message :`, message.content);
+            console.log(`[ON SEND_CHAT] chat message : ${chatData?.senderName} `, chatData?.content);
             // Broadcast to everyone so they see the text in the ui immediately
             this.room.broadcast("RECEIVE_CHAT", chatData);
         });
