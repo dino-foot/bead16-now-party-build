@@ -145,6 +145,7 @@ export class Player extends Schema {
         this.score = 0; //? testing 
         this.moves = 0;
         this.combo = 0;
+        this.killCount = 0;
         this.avatarId = "1";
         this.avatarUrl = "url";
         this.disconnected = false;
@@ -152,6 +153,7 @@ export class Player extends Schema {
         this.score = 0;
         this.moves = 0;
         this.combo = 0;
+        this.killCount = 0;
     }
 }
 __decorate([
@@ -190,6 +192,9 @@ __decorate([
 __decorate([
     type("int32")
 ], Player.prototype, "combo", void 0);
+__decorate([
+    type("int32")
+], Player.prototype, "killCount", void 0);
 __decorate([
     type("string")
 ], Player.prototype, "avatarId", void 0);
