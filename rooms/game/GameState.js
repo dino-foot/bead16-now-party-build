@@ -22,6 +22,13 @@ export class GameState extends Schema {
         this.board = new Board();
         this.allBeads = new ArraySchema();
         this.clickableBeadIds = new ArraySchema(); //  todo hightlight valid client beads to move in unity
+        // to validate server sync
+        this.stateVersion = 0;
+        this.stateChecksum = 0; // Numeric is faster than String Hash
+        //? [wip]: bead spam prevention non schema properties
+        // lastMovedBeadId: string = "";
+        // sameBeadMoveCount: number = 0;
+        this.chainCaptureCount = 0; // need this to track combo count during multi-jumps, reset on turn switch
         this.players.push(P1);
         this.players.push(P2);
         this.startMatch(P1, P2);
@@ -146,14 +153,26 @@ export class GameState extends Schema {
                 this.updateMoveableBeads(); // MUST update so only this bead is playable
                 this.setNextTurnTimestamp(); // Refresh timer for the next part of the jump
                 console.log(`[MULTI-JUMP] Bead ${beadId} must jump again.`);
+                this.updateStateMeta(); // Update state version and checksum after every move
                 return;
             }
+            this.handleComboCount(playerId);
         }
         else {
             this.executeMove(bead, toIndex);
         }
         this.activeMultiJumpId = ""; // null Reset lock
+        this.updateStateMeta(); // Update state version and checksum after every move
         this.switchTurn();
+    }
+    handleComboCount(playerId) {
+        const player = this.players.find(p => p.playfabId === playerId);
+        if (player) {
+            if (this.chainCaptureCount >= 2) {
+                player.combo += 1;
+                console.log(`[COMBO] Player ${player?.name} combo increased to ${player?.combo}`);
+            }
+        }
     }
     canBeadCapture(bead) {
         if (!bead.isAlive)
@@ -196,6 +215,8 @@ export class GameState extends Schema {
             // Kill the victim bead
             victim.isAlive = false;
             this.board.removeBead(victimIndex);
+            this.chainCaptureCount += 1;
+            bead.owner.killCount += 1;
             //? update score
             bead.owner.score += 1; // Award points to the attacker
             console.log(`Bead ${victim.id} was captured at ${victimIndex}`);
@@ -205,28 +226,26 @@ export class GameState extends Schema {
         //? CHECK GAMEOVER HERE
         const opponentId = victim.ownerPlayfabId;
         const opponentHasBeads = this.allBeads.some(b => b.isAlive && b.ownerPlayfabId === opponentId);
+        // TODO validate if this the correct gameover | score1 > score2 or draw
         if (!opponentHasBeads) {
             this.endGame(bead.ownerPlayfabId); // Attacker wins
             return;
         }
     }
     switchTurn() {
-        // todo handle combos here
-        // const currentPlayer = this.players.find(p => p.playfabId === this.currentTurn);
-        // if (currentPlayer) {
-        //     if(currentPlayer.moves > 1) {
-        //         currentPlayer.combo += 1;
-        //     }
-        // }
         //? [to debug comment this out]
-        this.currentTurn = this.currentTurn === this.players[0].playfabId
-            ? this.players[1].playfabId
-            : this.players[0].playfabId;
+        const currentPlayer = this.currentTurn === this.players[0].playfabId ? this.players[1] : this.players[0];
+        this.currentTurn = currentPlayer.playfabId;
+        currentPlayer.killCount = 0; // reset killCount count on turn switch
+        // this.currentTurn = this.currentTurn === this.players[0].playfabId
+        //     ? this.players[1].playfabId
+        //     : this.players[0].playfabId;
         // Check if new player can move
         // if (!this.canPlayerMove(this.currentTurn)) {
         //     return;
         // }
         this.activeMultiJumpId = "";
+        this.chainCaptureCount = 0; // reset combo if turn switches
         this.updateMoveableBeads();
         this.setNextTurnTimestamp(); // Update the sync time for Unity
     }
@@ -238,7 +257,7 @@ export class GameState extends Schema {
     performAutoplay() {
         if (this.gameStatus !== "START")
             return false;
-        console.log(`[AUTOPLAY] for player >> ${this.currentTurn}`);
+        // console.log(`[AUTOPLAY] for player >> ${this.currentTurn}`);
         // 1. Get all beads belonging to the current player that can move
         const moveableBeads = this.allBeads.filter(b => b.isAlive &&
             b.ownerPlayfabId === this.currentTurn &&
@@ -290,6 +309,21 @@ export class GameState extends Schema {
         const p2 = this.players[1].playfabId;
         return !this.canPlayerMove(p1) && !this.canPlayerMove(p2);
     }
+    // Call this after every move logic sequence
+    updateStateMeta() {
+        this.stateVersion += 1; // Increment version to indicate a new state
+        this.stateChecksum = this.generateChecksum();
+    }
+    generateChecksum() {
+        let crc = 0;
+        for (const bead of this.allBeads) {
+            // Fast bitwise hash (Zero string allocation)
+            crc = ((crc << 5) - crc) + bead.index;
+            crc = ((crc << 5) - crc) + (bead.isAlive ? 1 : 0);
+            crc |= 0; // Force to 32-bit int
+        }
+        return crc;
+    }
 }
 __decorate([
     type("string")
@@ -330,3 +364,9 @@ __decorate([
 __decorate([
     type(["string"])
 ], GameState.prototype, "clickableBeadIds", void 0);
+__decorate([
+    type("int32")
+], GameState.prototype, "stateVersion", void 0);
+__decorate([
+    type("uint32")
+], GameState.prototype, "stateChecksum", void 0);
