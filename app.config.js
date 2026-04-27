@@ -52,10 +52,10 @@ const server = defineServer({
     routes: createRouter({
         version: createEndpoint("/version", { method: "GET" }, async (ctx) => {
             return {
-                version: "0.1.5",
+                version: "0.1.6",
                 timestamp: new Date().toISOString(),
                 versionInfo: {
-                    "releaseNote": "Bead state versioning | private room | combo effects"
+                    "releaseNote": "Draw functionality added, anti spam prevention and cached moves in client"
                 }
             };
         })
@@ -73,7 +73,7 @@ const server = defineServer({
         if (process.env.SAMPLE !== "production") {
             app.use("/", playground());
             // simulate 200ms latency between server and client.
-            // server.simulateLatency(100);
+            // server.simulateLatency(200);
         }
         /**
          * Use @colyseus/monitor
