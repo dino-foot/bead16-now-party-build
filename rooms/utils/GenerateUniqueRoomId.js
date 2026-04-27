@@ -3,12 +3,14 @@ const LOBBY_CHANNEL = "$bead16_rooms";
  * Generates a unique 4-digit numeric room ID
  * @param presence The presence instance from the Room
  */
-export async function generateUniqueRoomId(presence) {
+export async function generateUniqueRoomId(presence, entryFee) {
     let id;
     let isTaken = true;
+    const feeCode = getFeeCode(entryFee);
     while (isTaken) {
         // Generates a string between "1000" and "9999"
         id = Math.floor(1000 + Math.random() * 9000).toString();
+        id = feeCode + id;
         // Check if ID is already in use
         const existing = await presence.hget(LOBBY_CHANNEL, id);
         if (!existing) {
@@ -24,4 +26,15 @@ export async function generateUniqueRoomId(presence) {
  */
 export async function releaseRoomId(presence, roomId) {
     await presence.hdel(LOBBY_CHANNEL, roomId);
+}
+function getFeeCode(entryFee) {
+    if (entryFee <= 1000)
+        return "0"; // 1k
+    if (entryFee <= 10000)
+        return "7"; // 10k
+    if (entryFee <= 100000)
+        return "8"; // 100k
+    if (entryFee <= 1000000)
+        return "9"; // 1M
+    return "1"; // high stakes
 }

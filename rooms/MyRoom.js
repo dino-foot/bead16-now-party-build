@@ -65,8 +65,8 @@ export class MyRoom extends Room {
         if (options.isPrivate) {
             // private room [play with friend]
             this.setPrivate(true);
-            // generate 4 digit unique room id and save to presence for express route to query and join
-            this.roomId = await generateUniqueRoomId(this.presence);
+            // generate 5 digit unique room id and save to presence for express route to query and join
+            this.roomId = await generateUniqueRoomId(this.presence, options.entryFee || DEFAULT_ENTRY_FEE);
         }
         else {
             // Notify the only player to start a local bot match | for public room only
@@ -89,20 +89,8 @@ export class MyRoom extends Room {
                 }
             }, DUMMY_PLAYER_TIME_MS);
         }
-        //? get beadId from unity on bead click
-        this.onMessage("getMoves", (client, data) => {
-            const player = this.state.players.get(client.sessionId);
-            // If spectator, ignore get moves request
-            if (!player || player.isSpectator)
-                return;
-            const validMoves = this.state.gameState.getValidMovesForBead(data.beadId);
-            const bead = this.state.gameState.getBeadById(data.beadId);
-            const from = bead.index;
-            // console.log("getMoves \n", client.sessionId, validMoves);
-            // console.log("validMoves \n", { beadId: data.beadId, moves: validMoves, from: from });
-            // Send back specifically to the requesting client
-            client.send("validMoves", { beadId: data.beadId, moves: validMoves, from: from });
-        });
+        //? send draw request to opponent
+        this.handleDraw();
         //? makeMove Request after valid moves 
         this.onMessage("makeMove", (client, data) => {
             const player = this.state.players.get(client.sessionId);
@@ -127,7 +115,7 @@ export class MyRoom extends Room {
         //? no valid playfab id [start dummy match immediately]
         if (!options?.isSpectator && !options?.playfabId) {
             client.send("START_DUMMY_MATCH", { reason: "invalid playfabid" });
-            console.log('[PLAYFAB ID INVALID] START_DUMMY_MATCH IMMEDIATELY', options);
+            console.log('[PLAYFAB ID INVALID] START_DUMMY_MATCH IMMEDIATELY');
             this.clock.setTimeout(() => { client.leave(CloseCode.CONSENTED); }, 2000);
             return;
         }
@@ -323,5 +311,58 @@ export class MyRoom extends Room {
         // this.state.players.forEach(p => activePlayers.delete(p.playfabId));
         await releaseRoomId(this.presence, this.roomId);
         console.log("[ROOM DISPOSED], cleared active player tracking.");
+    }
+    //? ------------- // Custom methods
+    handleDraw() {
+        // 1. [SENDER: P1] -> [RECEIVER: P2]
+        this.onMessage("requestDraw", (client) => {
+            const sender = this.state.players.get(client.sessionId);
+            const receiverClient = this.getOpponentClientBySessionId(client.sessionId);
+            if (receiverClient && sender) {
+                receiverClient.send("drawStatusUpdate", {
+                    status: "offer_received",
+                    senderName: sender.name,
+                    senderId: sender.playfabId
+                });
+            }
+            console.log("[DRAW] Draw request received from ", sender?.name);
+        });
+        // 2. [SENDER: P2] -> [RECEIVER: EVERYONE]
+        this.onMessage("acceptDraw", (client) => {
+            const sender = this.state.players.get(client.sessionId);
+            this.broadcast("drawStatusUpdate", {
+                status: "accepted",
+                senderName: sender.name,
+                senderId: sender.playfabId
+            });
+            // handle gameover
+            if (this.state?.gameState?.gameStatus !== "END") {
+                this.state.gameState.endGame(null);
+                this.setMetadata({ ...this.metadata, isGameOver: true });
+            }
+            console.log("[DRAW] Draw accepted, game ended in a draw. ", sender?.name);
+        });
+        // 3. [SENDER: P2] -> [RECEIVER: P1]
+        this.onMessage("declineDraw", (client) => {
+            const sender = this.state.players.get(client.sessionId);
+            const receiverClient = this.getOpponentClientBySessionId(client.sessionId);
+            if (receiverClient && sender) {
+                receiverClient.send("drawStatusUpdate", {
+                    status: "declined",
+                    senderName: sender.name,
+                    senderId: sender.playfabId
+                });
+            }
+            console.log("[DRAW] Draw request declined by ", sender?.name);
+        });
+        // console.log("[DRAW] Draw request handlers registered.");
+    } // end draw
+    getOpponentClientBySessionId(requesterSessionId) {
+        // 1. Find the player in the state who isn't the requester and isn't a spectator
+        const opponentState = Array.from(this.state.players.values()).find(p => p.colyseusId !== requesterSessionId && !p.isSpectator);
+        if (!opponentState)
+            return undefined;
+        // 2. Return the actual Client connection for that player
+        return this.clients.find(c => c.sessionId === opponentState.colyseusId);
     }
 }
