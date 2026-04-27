@@ -4,7 +4,7 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
     else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
     return c > 3 && r && Object.defineProperty(target, key, r), r;
 };
-import { Schema, type, MapSchema } from "@colyseus/schema";
+import { Schema, type, MapSchema, ArraySchema } from "@colyseus/schema";
 import { DEFAULT_BEAD_ID, DEFAULT_FRAME_ID, PlayerType } from "../Constants/Global.js";
 export class Board extends Schema {
     constructor() {
@@ -142,7 +142,7 @@ export class Player extends Schema {
         this.beadItemId = DEFAULT_BEAD_ID;
         this.frameItemId = DEFAULT_FRAME_ID;
         this.playerType = PlayerType.HUMAN; // human or bot
-        this.score = 0; //? testing 
+        this.score = 0;
         this.moves = 0;
         this.combo = 0;
         this.killCount = 0;
@@ -150,6 +150,8 @@ export class Player extends Schema {
         this.avatarUrl = "url";
         this.disconnected = false;
         this.isSpectator = null;
+        this.likeCount = 0;
+        this.canRequestDraw = null; // room.Send("requestDraw");
         this.score = 0;
         this.moves = 0;
         this.combo = 0;
@@ -207,11 +209,18 @@ __decorate([
 __decorate([
     type("boolean")
 ], Player.prototype, "isSpectator", void 0);
+__decorate([
+    type("int32")
+], Player.prototype, "likeCount", void 0);
+__decorate([
+    type("boolean")
+], Player.prototype, "canRequestDraw", void 0);
 export class Bead extends Schema {
     constructor() {
         super(...arguments);
         this.isAlive = true;
         this.isMoveable = true;
+        this.isLocked = false; //? locked for spamming
     }
 }
 __decorate([
@@ -232,6 +241,21 @@ __decorate([
 __decorate([
     type("boolean")
 ], Bead.prototype, "isMoveable", void 0);
+__decorate([
+    type("boolean")
+], Bead.prototype, "isLocked", void 0);
+export class ValidMoveEntry extends Schema {
+    constructor() {
+        super(...arguments);
+        this.moves = new ArraySchema();
+    }
+}
+__decorate([
+    type("string")
+], ValidMoveEntry.prototype, "beadId", void 0);
+__decorate([
+    type(["int32"])
+], ValidMoveEntry.prototype, "moves", void 0);
 export class Vec2 extends Schema {
 }
 __decorate([

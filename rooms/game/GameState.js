@@ -5,8 +5,8 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
     return c > 3 && r && Object.defineProperty(target, key, r), r;
 };
 import { Schema, type, ArraySchema } from "@colyseus/schema";
-import { Bead, Board, Player } from "./Bead16Schemas.js";
-import { DEFAULT_LAST_STAND_MOVE, DEFAULT_TURN_TIME } from "../Constants/Global.js";
+import { Bead, Board, Player, ValidMoveEntry } from "./Bead16Schemas.js";
+import { DEFAULT_TURN_TIME, DRAW_REQUEST_BEADS_THRESHOLD } from "../Constants/Global.js";
 export class GameState extends Schema {
     constructor(P1, P2) {
         super(); // Essential when extending Schema
@@ -18,16 +18,17 @@ export class GameState extends Schema {
         this.matchType = "PUBLIC";
         this.gameStatus = "WAITING";
         this.moveTimes = DEFAULT_TURN_TIME; // 60 seconds per turn time
-        this.lastStandMove = DEFAULT_LAST_STAND_MOVE; // to trigger draw if both players reach this number of moves without a winner
         this.board = new Board();
         this.allBeads = new ArraySchema();
-        this.clickableBeadIds = new ArraySchema(); //  todo hightlight valid client beads to move in unity
+        this.clickableBeadIds = new ArraySchema(); //? hightlight valid client beads to move in unity
         // to validate server sync
         this.stateVersion = 0;
         this.stateChecksum = 0; // Numeric is faster than String Hash
-        //? [wip]: bead spam prevention non schema properties
-        // lastMovedBeadId: string = "";
-        // sameBeadMoveCount: number = 0;
+        //? [new] optimize speed by syncing roundtrip time and draw system
+        this.validMoves = new ArraySchema();
+        //? [v0.1.5] bead spam check
+        this.moveHistory = new Map();
+        this.lockedBeadPerPlayer = new Map();
         this.chainCaptureCount = 0; // need this to track combo count during multi-jumps, reset on turn switch
         this.players.push(P1);
         this.players.push(P2);
@@ -63,13 +64,20 @@ export class GameState extends Schema {
     }
     updateMoveableBeads() {
         this.clickableBeadIds.clear();
+        //? new valid moves sync
+        this.validMoves.clear();
         this.allBeads.forEach(bead => {
             if (bead.isAlive && bead.ownerPlayfabId === this.currentTurn) {
                 const moves = this.getValidMovesForBead(bead.id);
                 bead.isMoveable = moves.length > 0;
                 // add to clickable list if moveable for highlight in unity
-                if (bead.isMoveable) {
+                if (bead.isMoveable && !bead.isLocked) {
                     this.clickableBeadIds.push(bead.id);
+                    //? new valid moves sync
+                    const entry = new ValidMoveEntry();
+                    entry.beadId = bead.id;
+                    moves.forEach(m => entry.moves.push(m));
+                    this.validMoves.push(entry);
                 }
                 // console.log(`[updateMoveableBeads] ${bead.id} at ${bead.index} moveable: ${bead.isMoveable} ${moves}`);
             }
@@ -118,7 +126,7 @@ export class GameState extends Schema {
         const bead = this.getBeadById(beadId);
         if (!bead)
             return;
-        if (!bead.isAlive)
+        if (!bead.isAlive || bead.isLocked)
             return;
         // Extra validation to ensure the bead belongs to the player making the move
         if (bead.ownerPlayfabId !== playerId)
@@ -132,6 +140,18 @@ export class GameState extends Schema {
         console.log("TO INDEX:", toIndex);
         if (!validMoves.includes(toIndex))
             return;
+        //? [v0.1.5] SPAM PREVENTION: If the player is moving the same bead repeatedly, lock it for the rest of the turn
+        const beadsAliveCount = this.allBeads.filter(b => b.isAlive && b.ownerPlayfabId === playerId).length;
+        const lastLockedId = this.lockedBeadPerPlayer.get(playerId);
+        // If there was a locked bead and the player is now moving a DIFFERENT one
+        if (lastLockedId && lastLockedId !== beadId) {
+            const lockedBead = this.getBeadById(lastLockedId);
+            if (lockedBead) {
+                lockedBead.isLocked = false; // Unlock the old one
+                console.log(`[SPAM RECOVERY] Player ${playerId} unlocked from moving bead ${lastLockedId}.`);
+            }
+            this.lockedBeadPerPlayer.delete(playerId); // Remove from tracking
+        }
         //? update moves
         const currentPlayer = this.players.find(p => p.playfabId === playerId);
         if (currentPlayer) {
@@ -146,7 +166,9 @@ export class GameState extends Schema {
             }
         }
         if (capturedIndex !== null) {
+            // jump logic [capture a bead]
             this.executeCapture(bead, toIndex, capturedIndex);
+            this.moveHistory.set(playerId, []);
             // Check for follow-up jumps
             if (this.canBeadCapture(bead)) {
                 this.activeMultiJumpId = bead.id;
@@ -159,6 +181,10 @@ export class GameState extends Schema {
             this.handleComboCount(playerId);
         }
         else {
+            // slide logic
+            if (beadsAliveCount > 2) { //? only enforce spam prevention if player has more than 2 beads alive to avoid trapping them with no moves
+                this.validateSpammingMove(playerId, beadId, bead.index, toIndex);
+            }
             this.executeMove(bead, toIndex);
         }
         this.activeMultiJumpId = ""; // null Reset lock
@@ -244,6 +270,7 @@ export class GameState extends Schema {
         // if (!this.canPlayerMove(this.currentTurn)) {
         //     return;
         // }
+        this.updateDrawEligibility(currentPlayer);
         this.activeMultiJumpId = "";
         this.chainCaptureCount = 0; // reset combo if turn switches
         this.updateMoveableBeads();
@@ -301,6 +328,48 @@ export class GameState extends Schema {
             bead.ownerPlayfabId === playfabId &&
             this.getValidMovesForBead(bead.id).length > 0);
     }
+    updateDrawEligibility(player) {
+        const aliveBeads = this.allBeads.filter(b => b.isAlive && b.ownerPlayfabId === player.playfabId);
+        player.canRequestDraw = aliveBeads.length <= DRAW_REQUEST_BEADS_THRESHOLD;
+    }
+    validateSpammingMove(playerId, beadId, fromIndex, toIndex) {
+        if (!this.moveHistory.has(playerId)) {
+            this.moveHistory.set(playerId, []);
+        }
+        const history = this.moveHistory.get(playerId);
+        // --- RESET LOGIC ---
+        // If they move a DIFFERENT bead, unlock all their beads first
+        if (history.length > 0 && history[0].beadId !== beadId) {
+            this.allBeads.forEach(b => {
+                if (b.ownerPlayfabId === playerId)
+                    b.isMoveable = true;
+            });
+            history.length = 0; // Clear history
+        }
+        history.push({ beadId, from: fromIndex, to: toIndex });
+        if (history.length > 4)
+            history.shift();
+        if (history.length === 4) {
+            const [m1, m2, m3, m4] = history;
+            const isPatternRepeat = m1.from === m3.from && m1.to === m3.to &&
+                m2.from === m4.from && m2.to === m4.to &&
+                m1.from === m2.to && m1.to === m2.from;
+            if (isPatternRepeat) {
+                // LOCK THIS BEAD
+                const bead = this.getBeadById(beadId);
+                if (bead) {
+                    bead.isLocked = true; // Syncs to Unity
+                    this.lockedBeadPerPlayer.set(playerId, beadId);
+                    console.log(`[SPAM DETECTED] Player ${playerId} locked from moving bead ${beadId} due to repetitive moves.`);
+                    // 4. Reset the history so the next pattern starts fresh
+                    this.moveHistory.set(playerId, []);
+                }
+                this.moveHistory.set(playerId, []);
+                return false; // Spam detected
+            }
+        }
+        return true;
+    }
     /**
      * Checks if the game is in a stalemate (neither player can move).
      */
@@ -315,14 +384,37 @@ export class GameState extends Schema {
         this.stateChecksum = this.generateChecksum();
     }
     generateChecksum() {
+        // let crc = 0;
+        // for (const bead of this.allBeads) {
+        //     // Fast bitwise hash (Zero string allocation)
+        //     crc = ((crc << 5) - crc) + bead.index;
+        //     crc = ((crc << 5) - crc) + (bead.isAlive ? 1 : 0);
+        //     crc |= 0; // Force to 32-bit int
+        // }
+        // return crc;
         let crc = 0;
+        // beads
         for (const bead of this.allBeads) {
-            // Fast bitwise hash (Zero string allocation)
             crc = ((crc << 5) - crc) + bead.index;
             crc = ((crc << 5) - crc) + (bead.isAlive ? 1 : 0);
-            crc |= 0; // Force to 32-bit int
+            crc = ((crc << 5) - crc) + bead.ownerPlayfabId.charCodeAt(0);
+            crc |= 0;
         }
-        return crc;
+        // turn
+        if (this.currentTurn) {
+            for (let i = 0; i < this.currentTurn.length; i++) {
+                crc = ((crc << 5) - crc) + this.currentTurn.charCodeAt(i);
+                crc |= 0;
+            }
+        }
+        // multi jump
+        if (this.activeMultiJumpId) {
+            for (let i = 0; i < this.activeMultiJumpId.length; i++) {
+                crc = ((crc << 5) - crc) + this.activeMultiJumpId.charCodeAt(i);
+                crc |= 0;
+            }
+        }
+        return crc >>> 0; // force uint32
     }
 }
 __decorate([
@@ -353,9 +445,6 @@ __decorate([
     type("int32")
 ], GameState.prototype, "moveTimes", void 0);
 __decorate([
-    type("int32")
-], GameState.prototype, "lastStandMove", void 0);
-__decorate([
     type(Board)
 ], GameState.prototype, "board", void 0);
 __decorate([
@@ -370,3 +459,6 @@ __decorate([
 __decorate([
     type("uint32")
 ], GameState.prototype, "stateChecksum", void 0);
+__decorate([
+    type([ValidMoveEntry])
+], GameState.prototype, "validMoves", void 0);
