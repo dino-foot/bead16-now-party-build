@@ -33,7 +33,8 @@ export class ChatHandler {
     // Call this inside onJoin
     sendHistory(client) {
         if (this.chatHistory.length > 0) {
-            client.send("CHAT_HISTORY", this.chatHistory);
+            // client.send("CHAT_HISTORY", this.chatHistory);
+            this.room.broadcast("CHAT_HISTORY", this.chatHistory);
         }
     }
     //? for debug purpose
