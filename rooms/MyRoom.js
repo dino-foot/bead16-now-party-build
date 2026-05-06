@@ -302,19 +302,31 @@ export class MyRoom extends Room {
                 this.state.players.delete(client.sessionId);
             }
         }
-        // --- INTENTIONAL LEAVE: Clean up immediately ---
+        // --- INTENTIONAL LEAVE: Keep in state, mark as disconnected ---
         else {
             console.log(`[LEFT WITH CONSENT] ${player.name}.`);
+            // For spectators, remove immediately
             if (player.isSpectator) {
                 this.state.players.delete(client.sessionId);
             }
+            // For active players, keep in state but mark disconnected = true
+            // They will be cleaned up when checking active players
         }
         // --- POST-LEAVE LOGIC (Runs for Consented OR Reconnect Timeout) ---
-        // 1. Host Migration
-        if (this.state.host === player && this.state.players.size > 0) {
-            const nextPlayer = Array.from(this.state.players.values()).find(p => !p.isSpectator);
-            this.state.host = nextPlayer || null;
-            console.log(`[HOST MIGRATED] New host: ${this.state.host?.name || "none"}`);
+        // 1. Host Migration - only if leaving player is the host
+        if (this.state.host?.colyseusId === player.colyseusId) {
+            // Find remaining active players (non-spectator, non-disconnected, exclude leaving player)
+            const remainingPlayers = Array.from(this.state.players.values()).filter(p => p.colyseusId !== player.colyseusId &&
+                !p.isSpectator &&
+                !p.disconnected);
+            if (remainingPlayers.length > 0) {
+                this.state.host = remainingPlayers[0];
+                console.log(`[HOST MIGRATED] New host: ${this.state.host.name}`);
+            }
+            // else {
+            //   this.state.host = null;
+            //   console.log(`[HOST MIGRATED] No remaining active players, host set to null`);
+            // }
         }
         // 2. Room Shutdown (Autoplay check)
         const activePlayerCount = Array.from(this.state.players.values()).filter(p => !p.isSpectator && !p.disconnected).length;
