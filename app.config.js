@@ -52,10 +52,10 @@ const server = defineServer({
     routes: createRouter({
         version: createEndpoint("/version", { method: "GET" }, async (ctx) => {
             return {
-                version: "0.1.6",
+                version: "0.1.7",
                 timestamp: new Date().toISOString(),
                 versionInfo: {
-                    "releaseNote": "Draw functionality added, anti spam prevention and cached moves in client"
+                    "releaseNote": "Gift System and Reconnect"
                 }
             };
         })
