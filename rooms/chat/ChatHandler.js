@@ -1,58 +1,87 @@
 import { randomUUID } from "crypto";
+const HTML_ESCAPE_MAP = {
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#x27;',
+    '/': '&#x2F;',
+    '`': '&#96;',
+};
+const HTML_ESCAPE_REGEX = /[&<>"'`/]/g;
+function escapeHtml(str) {
+    return str.replace(HTML_ESCAPE_REGEX, (match) => HTML_ESCAPE_MAP[match]);
+}
+function sanitizeInput(str, maxLength) {
+    return escapeHtml(str.trim().slice(0, maxLength));
+}
+function isValidMessageType(type) {
+    return type === "TEXT" || type === "EMOJI";
+}
+const COOLDOWN_MS = 1000;
 export class ChatHandler {
     constructor(room) {
         this.chatHistory = [];
         this.MAX_HISTORY = 25;
-        this.MAX_CONTENT_LENGTH = 50; //? can be moved to config
+        this.MAX_CONTENT_LENGTH = 60;
+        this.MAX_NAME_LENGTH = 25;
+        this.MAX_AVATAR_LENGTH = 999;
+        this.lastMessageTime = new Map();
         this.room = room;
         this.chatHistory = [];
     }
-    // Call this inside onCreate
     setup() {
         this.room.onMessage("SEND_CHAT", (client, message) => {
-            const player = this.room.state.players.get(client.sessionId);
+            if (!message || typeof message !== "object")
+                return;
+            const msg = message;
+            if (!msg.content || typeof msg.content !== "string")
+                return;
+            const now = Date.now();
+            const lastTime = this.lastMessageTime.get(client.sessionId) || 0;
+            if (now - lastTime < COOLDOWN_MS)
+                return;
+            const sanitizedContent = sanitizeInput(msg.content, this.MAX_CONTENT_LENGTH);
+            if (sanitizedContent.length === 0)
+                return;
+            const sanitizedType = isValidMessageType(msg.type) ? msg.type : "TEXT";
             const chatData = {
-                messageId: message.messageId ?? randomUUID(),
-                senderId: message.senderId ?? client.sessionId,
-                senderName: message?.senderName || `Guest_${client.sessionId.substring(0, 4)}`,
-                avatarUrl: message.avatarUrl ?? "0", // default avatar
-                content: message.content.length > this.MAX_CONTENT_LENGTH ? message.content.substring(0, this.MAX_CONTENT_LENGTH) : message.content || "Hi !", // default content if missing
-                type: message.type,
+                messageId: (typeof msg.messageId === "string" && msg.messageId.length > 0)
+                    ? msg.messageId
+                    : randomUUID(),
+                senderId: typeof msg.senderId === "string" ? sanitizeInput(msg.senderId, 64) : client.sessionId,
+                senderName: typeof msg.senderName === "string"
+                    ? sanitizeInput(msg.senderName, this.MAX_NAME_LENGTH)
+                    : `Guest_${client.sessionId.substring(0, 4)}`,
+                avatarUrl: typeof msg.avatarUrl === "string"
+                    ? sanitizeInput(msg.avatarUrl, this.MAX_AVATAR_LENGTH)
+                    : "0",
+                content: sanitizedContent,
+                type: sanitizedType,
             };
-            // Only save text history
+            this.lastMessageTime.set(client.sessionId, now);
             if (chatData.type === "TEXT") {
                 this.chatHistory.push(chatData);
                 if (this.chatHistory.length > this.MAX_HISTORY)
                     this.chatHistory.shift();
             }
-            console.log(`[ON SEND_CHAT] chat message : ${chatData?.senderName} `, chatData?.content);
-            // Broadcast to everyone so they see the text in the ui immediately
+            console.log(`[ON SEND_CHAT] chat message : ${chatData.senderName} `, chatData.content);
             this.room.broadcast("RECEIVE_CHAT", chatData);
         });
     }
-    // Call this inside onJoin
     sendHistory(client) {
         if (this.chatHistory.length > 0) {
-            // client.send("CHAT_HISTORY", this.chatHistory);
-            this.room.broadcast("CHAT_HISTORY", this.chatHistory);
+            client.send("CHAT_HISTORY", this.chatHistory);
+            // this.room.broadcast("CHAT_HISTORY", this.chatHistory); //? [wrong] it brodcast all the client duplicates history
         }
     }
-    //? for debug purpose
     addChatMessage() {
-        // const chatData: ChatMessage = {
-        //     messageId: randomUUID(),
-        //     senderId: `seesionId_${randomUUID()}`,
-        //     senderName: `Server_${randomUUID()}`,
-        //     avatarUrl: "6",
-        //     content: "Hello from server !", // default content if missing
-        //     type: 'TEXT',
-        // };
         const chatData = {
             messageId: randomUUID(),
             senderId: 'p1',
             senderName: 'manox lx',
             avatarUrl: "2",
-            content: "kiss", // default content if missing
+            content: "kiss",
             type: 'EMOJI',
         };
         this.chatHistory.push(chatData);
