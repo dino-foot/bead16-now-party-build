@@ -62,6 +62,7 @@ export class MyRoom extends Room {
         //? Initialize the state and Chat here
         this.state = new Bead16RoomState();
         this.chatHandler = new ChatHandler(this);
+        // todo integrate private room later
         if (options.isPrivate) {
             // private room [play with friend]
             this.setPrivate(true);
@@ -89,26 +90,27 @@ export class MyRoom extends Room {
                 }
             }, DUMMY_PLAYER_TIME_MS);
         }
-        //? send draw request to opponent
-        this.handleDraw();
         //? makeMove Request after valid moves 
         this.onMessage("makeMove", (client, data) => {
             const player = this.state.players.get(client.sessionId);
             if (!player || player.isSpectator) {
-                console.warn(`[REJECTED] Spectator ${client.sessionId} attempted to move.`);
+                console.log(`[REJECTED] Spectator ${client.sessionId} attempted to move.`);
                 return;
             }
             const { beadId, toIndex } = data;
             const bead = this.state.gameState.getBeadById(beadId);
             // validation: ensure the bead belongs to the player making the move
             if (!bead || bead.ownerPlayfabId !== player.playfabId) {
-                console.warn(`Invalid move attempt by player ${player.playfabId} on bead ${beadId}`);
+                console.log(`Invalid move attempt by player ${player.playfabId} on bead ${beadId}`);
                 return;
             }
             // execute the player move
             console.log("[CURRENT TURN] ", player.name, data);
             this.state.gameState.moveBead(bead.ownerPlayfabId, beadId, toIndex);
         }); // end onMessage
+        //? send draw request to opponent
+        this.handleDraw();
+        this.setupGiftHandler();
         this.chatHandler.setup(); // Initialize chat message handlers
     } // end onCreate
     async onJoin(client, options) {
@@ -246,26 +248,25 @@ export class MyRoom extends Room {
         const player = this.state.players.get(client.sessionId);
         if (!player)
             return;
-        player.disconnected = true;
+        // player.disconnected = true;
         console.log(`[CONNECTION DROPPED] Player ${player.name}. Close code: ${code}`);
-        try {
-            // Wait for reconnection
-            await this.allowReconnection(client, 60);
-            player.disconnected = false;
-            console.log(`[RECONNECTED] ${player?.name} restored.`);
-            return; // Don't clean up, client is back
-        }
-        catch (e) {
-            // Reconnection failed or timed out
-            console.log(`[RECONNECT FAILED] player ${player?.name}`);
-            // this.state.players.delete(client.sessionId);
-            client.leave(CloseCode.CONSENTED);
-            // Reassign Host if needed
-            if (this.state.host === player) {
-                const nextPlayer = Array.from(this.state.players.values()).find(p => !p.isSpectator);
-                this.state.host = nextPlayer || null;
-            }
-        }
+        // try {
+        //   // Wait for reconnection
+        //   await this.allowReconnection(client, 60);
+        //   player.disconnected = false;
+        //   console.log(`[RECONNECTED] ${player?.name} restored.`);
+        //   return; // Don't clean up, client is back
+        // } catch (e) {
+        //   // Reconnection failed or timed out
+        //   console.log(`[RECONNECT FAILED] player ${player?.name}`);
+        //   // this.state.players.delete(client.sessionId);
+        //   client.leave(CloseCode.CONSENTED);
+        //   // Reassign Host if needed
+        //   if (this.state.host === player) {
+        //     const nextPlayer = Array.from(this.state.players.values()).find(p => !p.isSpectator);
+        //     this.state.host = nextPlayer || null;
+        //   }
+        // }
         // if (code !== CloseCode.CONSENTED) { // unexpected disconnect, attempt reconnection before cleaning up
         //   console.log(`Player ${player.name} [LEFT UNEXPECTEDLY RECONNECTING ...]. Close code: ${code}`);
         // }
@@ -280,23 +281,42 @@ export class MyRoom extends Room {
     //? if a player leave do autoplay if atleast 1 player in the room
     async onLeave(client, code) {
         const player = this.state.players.get(client.sessionId);
-        console.log(`[ONLEAVE] player ${client.sessionId} | ${player?.name} | Close code ${code}`);
         if (!player)
             return;
-        // normal leave, we can skip reconnection logic and clean up immediately
-        if (code === CloseCode.CONSENTED) {
-            console.log(`Player ${player.name} [LEFT WITH CONSENT]. Close code: ${code}`);
-            player.disconnected = true;
+        const isConsented = (code === CloseCode.CONSENTED);
+        player.disconnected = true;
+        console.log(`[ONLEAVE] ${player.name} (Code: ${code}, Consented: ${isConsented})`);
+        // --- ACCIDENTAL DISCONNECT: Start Waiting ---
+        if (!isConsented) {
+            try {
+                // Logic pauses here for up to 60s waiting for Unity manual reconnect
+                await this.allowReconnection(client, 60);
+                // SUCCESS: Player clicked reconnect in Unity
+                player.disconnected = false;
+                console.log(`[RECONNECTED] ${player.name} restored.`);
+                return;
+            }
+            catch (err) {
+                // FAILURE: 60s passed without the player returning
+                console.log(`[RECONNECT FAILED] ${player.name} timed out.`);
+                this.state.players.delete(client.sessionId);
+            }
+        }
+        // --- INTENTIONAL LEAVE: Clean up immediately ---
+        else {
+            console.log(`[LEFT WITH CONSENT] ${player.name}.`);
             if (player.isSpectator) {
                 this.state.players.delete(client.sessionId);
             }
-            // if the player is the host, assign a new host
-            if (this.state.host === player && this.state.players.size > 0) {
-                const nextPlayer = Array.from(this.state.players.values()).find(p => !p.isSpectator);
-                this.state.host = nextPlayer || null;
-            }
         }
-        //? p1/p2 (1) player left keep autoplaying, if both players left even though room has [SPECTATORS] disconnect the room
+        // --- POST-LEAVE LOGIC (Runs for Consented OR Reconnect Timeout) ---
+        // 1. Host Migration
+        if (this.state.host === player && this.state.players.size > 0) {
+            const nextPlayer = Array.from(this.state.players.values()).find(p => !p.isSpectator);
+            this.state.host = nextPlayer || null;
+            console.log(`[HOST MIGRATED] New host: ${this.state.host?.name || "none"}`);
+        }
+        // 2. Room Shutdown (Autoplay check)
         const activePlayerCount = Array.from(this.state.players.values()).filter(p => !p.isSpectator && !p.disconnected).length;
         if (activePlayerCount === 0) {
             console.log("[NO_ACTIVE_PLAYERS] No players left. Closing room for spectators...");
@@ -305,7 +325,7 @@ export class MyRoom extends Room {
                 this.disconnect();
             }, 2000);
         }
-    } // end
+    }
     async onDispose() {
         // Safety: ensure all players in this room are cleared if room is destroyed
         // this.state.players.forEach(p => activePlayers.delete(p.playfabId));
@@ -357,6 +377,51 @@ export class MyRoom extends Room {
         });
         // console.log("[DRAW] Draw request handlers registered.");
     } // end draw
+    setupGiftHandler() {
+        this.onMessage("SEND_GIFT", (client, data) => {
+            const sender = this.state.players.get(client.sessionId);
+            if (!sender) {
+                console.log(`[GIFT] Rejected: Unknown client ${client.sessionId}`);
+                return;
+            }
+            // Validate Target (Must be P1 or P2, not a spectator)
+            const targetPlayer = Array.from(this.state.players.values()).find(p => p.playfabId === data.targetPlayerId && !p.isSpectator);
+            if (!targetPlayer) {
+                console.log(`[GIFT] Rejected: Target ${data.targetPlayerId} is invalid or a spectator.`);
+                return;
+            }
+
+            // 3. Broadcast to everyone except the sender
+            this.broadcast("RECEIVE_GIFT", {
+                giftId: data.giftId,
+                senderPlayerId: sender.playfabId, //? check gamestate players by playfabid
+                targetPlayerId: targetPlayer.playfabId
+            }, { except: client });
+            console.log('[GIFT] sent ', data);
+            //? DEBUG: Echo gift back from receiver to sender
+            // setTimeout(() => {
+            //   this.debugGiftEcho(client, data.giftId, sender.playfabId, targetPlayer.playfabId);
+            // }, 5000)
+        });
+    }
+    //? Only Debug: When a gift is received, the receiver automatically sends the same gift back to the sender
+    debugGiftEcho(originalSenderClient, giftId, senderPlayfabId, receiverPlayfabId) {
+        const receiverClient = Array.from(this.clients).find(c => {
+            const player = this.state.players.get(c.sessionId);
+            return player?.playfabId === receiverPlayfabId;
+        });
+        if (!receiverClient) {
+            console.log(`[GIFT-DEBUG] Could not find receiver client for ${receiverPlayfabId}`);
+            return;
+        }
+        // Receiver sends the same gift back to the original sender
+        originalSenderClient.send("RECEIVE_GIFT", {
+            giftId: giftId,
+            senderPlayerId: receiverPlayfabId, // now the "sender" is the receiver
+            targetPlayerId: senderPlayfabId // target is the original sender
+        });
+        console.log(`[GIFT-DEBUG] Echoed gift ${giftId} back from ${receiverPlayfabId} to ${senderPlayfabId}`);
+    }
     getOpponentClientBySessionId(requesterSessionId) {
         // 1. Find the player in the state who isn't the requester and isn't a spectator
         const opponentState = Array.from(this.state.players.values()).find(p => p.colyseusId !== requesterSessionId && !p.isSpectator);
