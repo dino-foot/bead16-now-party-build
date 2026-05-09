@@ -8,9 +8,10 @@ import { Room, CloseCode } from "@colyseus/core";
 import { MapSchema, Schema, type } from "@colyseus/schema";
 import { GameState } from "./game/GameState.js";
 import { Player } from "./game/Bead16Schemas.js";
-import { DEFAULT_AVATAR_ID, DEFAULT_AVATAR_URL, DEFAULT_BEAD_ID, DEFAULT_ENTRY_FEE, DEFAULT_COUNTRY, DEFAULT_FRAME_ID, DUMMY_PLAYER_TIME_MS, MATCH_COMMISSION, DEFAULT_TURN_TIME, FAST_AUTOPLAY_TIME_MS, MAX_CLIENTS } from "./Constants/Global.js";
+import { DEFAULT_AVATAR_ID, DEFAULT_AVATAR_URL, DEFAULT_BEAD_ID, DEFAULT_ENTRY_FEE, DEFAULT_COUNTRY, DEFAULT_FRAME_ID, MATCH_COMMISSION, DEFAULT_TURN_TIME, FAST_AUTOPLAY_TIME_MS, MAX_CLIENTS } from "./Constants/Global.js";
 import { ChatHandler } from "./chat/ChatHandler.js";
 import { generateUniqueRoomId, releaseRoomId } from "./utils/GenerateUniqueRoomId.js";
+import { PRIVATE_ROOM_PREFIX } from "../routes/privateRoom.js";
 class Bead16RoomState extends Schema {
     constructor() {
         super(...arguments);
@@ -50,6 +51,14 @@ export class MyRoom extends Room {
             // throw new Error("Authentication failed: No playfabId provided. ", options);
             console.log("[AUTH] warning: No playfabId provided. ", options);
         }
+        // Prevent duplicate playfabId in private rooms (P2 pressing join multiple times)
+        if (playfabId && options?.isPrivate) {
+            const existingPlayer = Array.from(this.state.players.values()).find(p => p.playfabId === playfabId && !p.isSpectator);
+            if (existingPlayer) {
+                console.log(`[AUTH] Rejected: Player ${playfabId} already in private room ${this.roomId}`);
+                return false; // Reject the join
+            }
+        }
         return true;
     }
     async onCreate(options) {
@@ -62,33 +71,28 @@ export class MyRoom extends Room {
         //? Initialize the state and Chat here
         this.state = new Bead16RoomState();
         this.chatHandler = new ChatHandler(this);
-        // todo integrate private room later
+        // integrate private room later
         if (options.isPrivate) {
             // private room [play with friend]
             this.setPrivate(true);
-            // generate 5 digit unique room id and save to presence for express route to query and join
-            this.roomId = await generateUniqueRoomId(this.presence, options.entryFee || DEFAULT_ENTRY_FEE);
-        }
-        else {
-            // Notify the only player to start a local bot match | for public room only
-            this.dummyPlayerTimer = this.clock.setTimeout(() => {
-                // wait 10 seconds for a 2nd valid player to join before starting dummy match
+            // Use reserved room code if provided (from REST API polling flow)
+            if (options.reservedRoomCode) {
+                this.roomId = options.reservedRoomCode;
+            }
+            else {
+                // generate 5 digit unique room id and save to presence for express route to query and join
+                this.roomId = await generateUniqueRoomId(this.presence, options.entryFee || DEFAULT_ENTRY_FEE);
+            }
+            // Auto-dispose private room if no players join within 5 minutes
+            this.clock.setTimeout(() => {
                 const realPlayers = Array.from(this.state.players.values()).filter(p => !p.isSpectator);
-                if (realPlayers.length === 1) {
-                    this.lock();
-                    // 3. Update Metadata so it disappears from the /viewers list
-                    this.setMetadata({
-                        ...this.metadata,
-                        isFull: true,
-                        // isGameOver: true // This ensures your Express route filters it out
-                    });
-                    this.broadcast("START_DUMMY_MATCH", { reason: "timeout" });
-                    console.log('START_DUMMY_MATCH');
-                    this.clock.setTimeout(() => {
-                        this.disconnect();
-                    }, 150);
+                if (realPlayers.length === 0) {
+                    console.log(`[PRIVATE ROOM] No players joined within timeout. Disposing room: ${this.roomId}`);
+                    this.disconnect(); // Disconnect all connected clients, and then dispose the room.
                 }
-            }, DUMMY_PLAYER_TIME_MS);
+            }, 5 * 60 * 1000); // 5 minutes
+            //? Broadcast "waiting" status for private rooms
+            // this.broadcast("ROOM_STATUS", { status: "waiting", message: "Waiting for players..." });
         }
         //? makeMove Request after valid moves 
         this.onMessage("makeMove", (client, data) => {
@@ -132,7 +136,6 @@ export class MyRoom extends Room {
         const realPlayers = allPlayers.filter(p => !p.isSpectator);
         if (realPlayers.length === 2) {
             // await this.lock(); // Lock the room to prevent more players from joining while we set up the game
-            this.dummyPlayerTimer?.clear(); // Cancel the bot timer if a real second player joins
             this.setMetadata({
                 ...this.metadata,
                 isFull: true, // for room listing filter [once true removed from public matchmaking]
@@ -143,13 +146,6 @@ export class MyRoom extends Room {
             console.log(`Player ${options.playerName} joined as [SPECTATOR].`);
         }
         else {
-            // If 3rd player somehow enters before lock, start dummy match for him
-            if (realPlayers.length > 2) {
-                client.send("START_DUMMY_MATCH", { reason: "room full" });
-                console.log('[PLAYFAB ID VALID] START_FALLBACK_DUMMY_MATCH ROOM FULL');
-                this.clock.setTimeout(() => { client.leave(CloseCode.CONSENTED); }, 2000);
-                return;
-            }
             player.seat = realPlayers.length - 1; // 0 for first, 1 for second
             console.log(`Player ${options.playerName} joined as [ACTIVE PLAYER].`);
         }
@@ -342,6 +338,13 @@ export class MyRoom extends Room {
         // Safety: ensure all players in this room are cleared if room is destroyed
         // this.state.players.forEach(p => activePlayers.delete(p.playfabId));
         await releaseRoomId(this.presence, this.roomId);
+        // Clean up private room Redis data if exists
+        try {
+            await this.presence.del(PRIVATE_ROOM_PREFIX + this.roomId);
+        }
+        catch (e) {
+            // Ignore errors
+        }
         console.log("[ROOM DISPOSED], cleared active player tracking.");
     }
     //? ------------- // Custom methods
@@ -402,7 +405,6 @@ export class MyRoom extends Room {
                 console.log(`[GIFT] Rejected: Target ${data.targetPlayerId} is invalid or a spectator.`);
                 return;
             }
-
             // 3. Broadcast to everyone except the sender
             this.broadcast("RECEIVE_GIFT", {
                 giftId: data.giftId,
