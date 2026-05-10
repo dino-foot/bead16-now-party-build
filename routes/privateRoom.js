@@ -1,7 +1,7 @@
 import { matchMaker } from "colyseus";
 import { generateUniqueRoomId, releaseRoomId } from "../rooms/utils/GenerateUniqueRoomId.js";
 export const PRIVATE_ROOM_PREFIX = "private_room:";
-const PRIVATE_ROOM_TTL = 300; // 5 minutes in seconds
+const PRIVATE_ROOM_TTL = 420; // 7 minutes in seconds
 /**
  * Get private room data from Redis
  * If expired (not found), check if Colyseus room still exists before cleanup
