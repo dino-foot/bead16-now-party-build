@@ -101,7 +101,8 @@ export async function joinPrivateRoom(presence, body) {
             if (!rooms || rooms.length === 0) {
                 // Room was disposed after creation, clean up
                 await deletePrivateRoomData(presence, roomCode);
-                throw new Error("Room has been cancelled");
+                console.log('[PRIVATE] Room has been cancelled ', roomData);
+                // throw new Error("Room has been cancelled");
             }
         }
         catch (e) {
@@ -120,7 +121,7 @@ export async function joinPrivateRoom(presence, body) {
         if (roomData.player2.playfabId === player.playfabId) {
             return roomData; // P2 re-joining
         }
-        throw new Error("Room is full");
+        throw new Error("PRIVATE] Room is full");
     }
     // Register P2
     roomData.player2 = player;

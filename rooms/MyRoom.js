@@ -91,7 +91,7 @@ export class MyRoom extends Room {
                     this.disconnect(); // Disconnect all connected clients, and then dispose the room.
                 }
             }, 5 * 60 * 1000); // 5 minutes
-            //? Broadcast "waiting" status for private rooms
+            // Broadcast "waiting" status for private rooms
             // this.broadcast("ROOM_STATUS", { status: "waiting", message: "Waiting for players..." });
         }
         //? makeMove Request after valid moves 
@@ -173,6 +173,9 @@ export class MyRoom extends Room {
                 p1CountryID: realPlayers[0]?.country,
                 p2CountryID: realPlayers[1]?.country
             });
+            if (options.isPrivate) {
+                console.log(`[PRIVATE ROOM] joined success. RoomID: ${this.roomId}, P1: ${realPlayers[0]?.name}, P2: ${realPlayers[1]?.name}`);
+            }
             //? gameStatus = MATCHED, delay = 5 seconds, then START game
             // if we want to be really precise, we should set gameStatus = "START" immediately when the 2nd player joins
             if (!this.state.gameState) {
