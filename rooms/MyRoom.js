@@ -249,26 +249,6 @@ export class MyRoom extends Room {
             return;
         // player.disconnected = true;
         console.log(`[CONNECTION DROPPED] Player ${player.name}. Close code: ${code}`);
-        // try {
-        //   // Wait for reconnection
-        //   await this.allowReconnection(client, 60);
-        //   player.disconnected = false;
-        //   console.log(`[RECONNECTED] ${player?.name} restored.`);
-        //   return; // Don't clean up, client is back
-        // } catch (e) {
-        //   // Reconnection failed or timed out
-        //   console.log(`[RECONNECT FAILED] player ${player?.name}`);
-        //   // this.state.players.delete(client.sessionId);
-        //   client.leave(CloseCode.CONSENTED);
-        //   // Reassign Host if needed
-        //   if (this.state.host === player) {
-        //     const nextPlayer = Array.from(this.state.players.values()).find(p => !p.isSpectator);
-        //     this.state.host = nextPlayer || null;
-        //   }
-        // }
-        // if (code !== CloseCode.CONSENTED) { // unexpected disconnect, attempt reconnection before cleaning up
-        //   console.log(`Player ${player.name} [LEFT UNEXPECTEDLY RECONNECTING ...]. Close code: ${code}`);
-        // }
     }
     async onReconnect(client) {
         const player = this.state.players.get(client.sessionId);
@@ -298,7 +278,9 @@ export class MyRoom extends Room {
             catch (err) {
                 // FAILURE: 60s passed without the player returning
                 console.log(`[RECONNECT FAILED] ${player.name} timed out.`);
-                this.state.players.delete(client.sessionId);
+                // Keep player in state with disconnected = true (already set above).
+                // The update() loop will detect disconnected and trigger autoplay.
+                //? Do NOT delete from state — deleting makes the player unfindable by playfabId which causes the game to stall on their turn permanently.
             }
         }
         // --- INTENTIONAL LEAVE: Keep in state, mark as disconnected ---
@@ -308,8 +290,6 @@ export class MyRoom extends Room {
             if (player.isSpectator) {
                 this.state.players.delete(client.sessionId);
             }
-            // For active players, keep in state but mark disconnected = true
-            // They will be cleaned up when checking active players
         }
         // --- POST-LEAVE LOGIC (Runs for Consented OR Reconnect Timeout) ---
         // 1. Host Migration - only if leaving player is the host
