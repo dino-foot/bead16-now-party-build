@@ -21,6 +21,8 @@ export const DUMMY_PLAYER_TIME_MS = 10000; // 10 seconds only 1 player then trig
 export const VERSION = "1.0.0";
 export const GAME_ID = "bead16_party";
 export const MATCH_COMMISSION = 0.2; // 20% commission on total entry fees
+// Feature toggles
+export const ENABLE_CHATROOM = false;
 // room clients and specators limits
 export const MAX_PLAYERS = 2;
 export const MAX_SPECTATORS = 6;
