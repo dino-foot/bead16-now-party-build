@@ -10,5 +10,15 @@
 import { listen } from "@colyseus/tools";
 // Import Colyseus config
 import app from "./app.config.js";
+import { precreateChatRooms } from "./rooms/chat/startup.js";
+import { ENABLE_CHATROOM } from "./rooms/Constants/Global.js";
+import { initializeFirebase } from "./services/firebase.js";
+initializeFirebase();
+// create database tables on startup (fcm_tokens, players, player_stats, invitations)
+// ensureTablesExist().catch(err => console.error("[DB] Table creation error:", err));
 // Create and listen on 2567 (or PORT environment variable.)
-listen(app);
+listen(app).then(() => {
+    if (ENABLE_CHATROOM) {
+        precreateChatRooms();
+    }
+});
