@@ -44,7 +44,7 @@ const server = defineServer({
         queue: defineRoom(Bead16QueueRoom, {
             matchRoomName: "my_room",
             maxPlayers: 2,
-            maxWaitingCycles: 8,
+            maxWaitingCycles: 10,
             allowIncompleteGroups: true,
         }).filterBy(['entryFee', 'gameId']),
         ...(ENABLE_CHATROOM ? {
