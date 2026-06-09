@@ -68,6 +68,28 @@ export async function ensureTablesExist() {
         CREATE INDEX IF NOT EXISTS idx_invitations_expires ON invitations(expires_at);
     `);
     console.log("[DB] Ensured invitations table exists");
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS matches (
+            id SERIAL PRIMARY KEY,
+            player1_playfab_id VARCHAR(50) NOT NULL,
+            player2_playfab_id VARCHAR(50) NOT NULL,
+            played_at TIMESTAMPTZ DEFAULT NOW()
+        );
+    `);
+    await pool.query(`
+        CREATE INDEX IF NOT EXISTS idx_matches_player1 ON matches(player1_playfab_id);
+    `);
+    await pool.query(`
+        CREATE INDEX IF NOT EXISTS idx_matches_player2 ON matches(player2_playfab_id);
+    `);
+    await pool.query(`
+        CREATE INDEX IF NOT EXISTS idx_matches_played_at ON matches(played_at DESC);
+    `);
+    await pool.query(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_matches_unique_pair
+        ON matches (LEAST(player1_playfab_id, player2_playfab_id), GREATEST(player1_playfab_id, player2_playfab_id));
+    `);
+    console.log("[DB] Ensured matches table exists");
 }
 export default pool;
 // postgresql://postgres:IYEHQTZzGipzGSVGnSJiqAHfNKFgiRNI@roundhouse.proxy.rlwy.net:27562/railway

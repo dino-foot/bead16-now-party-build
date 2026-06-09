@@ -57,10 +57,13 @@ h2 { font-size: 1.3rem; margin-bottom: 14px; color: #58a6ff; }
 .sub-tab:hover { color: #c9d1d9; }
 .sub-panel { display: none; }
 .sub-panel.active { display: block; }
-.search-bar { margin-bottom: 12px; }
-.search-bar input { width: 100%; max-width: 400px; padding: 7px 12px; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; color: #e1e4e8; font-size: 0.82rem; outline: none; }
+.search-bar { margin-bottom: 12px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.search-bar input { flex: 1; min-width: 180px; max-width: 320px; padding: 7px 12px; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; color: #e1e4e8; font-size: 0.82rem; outline: none; }
 .search-bar input:focus { border-color: #58a6ff; }
 .search-bar input::placeholder { color: #484f58; }
+.limit-select { padding: 5px 8px; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; color: #e1e4e8; font-size: 0.78rem; outline: none; cursor: pointer; }
+.limit-select:focus { border-color: #58a6ff; }
+.row-count { color: #8b949e; font-size: 0.78rem; white-space: nowrap; }
 table { width: 100%; border-collapse: collapse; background: #161b22; border: 1px solid #30363d; border-radius: 8px; overflow: hidden; }
 th { text-align: left; padding: 10px 14px; background: #1c2128; color: #8b949e; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.5px; cursor: pointer; user-select: none; white-space: nowrap; border-bottom: 1px solid #30363d; }
 th:hover { color: #c9d1d9; }
@@ -73,6 +76,8 @@ tr:hover td { background: #1c2128; }
 .badge-blue { background: #1a2744; color: #58a6ff; }
 .badge-yellow { background: #3d3200; color: #e3b341; }
 .badge-red { background: #3d1f1f; color: #f85149; }
+.btn-del { background: #3d1f1f; border: 1px solid #f85149; color: #f85149; padding: 3px 10px; border-radius: 4px; cursor: pointer; font-size: 0.72rem; font-weight: 600; }
+.btn-del:hover { background: #f85149; color: #fff; }
 .empty { text-align: center; padding: 36px 16px; color: #484f58; }
 .refresh-btn { background: #21262d; border: 1px solid #30363d; color: #c9d1d9; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 0.78rem; }
 .refresh-btn:hover { background: #30363d; }
@@ -97,17 +102,19 @@ code { background: #1c2128; padding: 2px 6px; border-radius: 4px; font-size: 0.7
             <button class="sub-tab" data-sub="invitations">Invitations</button>
         </div>
         <div id="sub-players" class="sub-panel active">
-            <div class="search-bar"><input type="text" id="sp" placeholder="Search by name, ID, or country..."></div>
+            <div class="search-bar"><input type="text" id="sp" placeholder="Search by name, ID, or country..."><span class="row-count" id="rc-p"></span><select class="limit-select" id="limit-p"><option value="20">20</option><option value="50" selected>50</option><option value="Infinity">All</option></select></div>
             <table><thead><tr>
                 <th data-c="playfab_id">PlayFab ID <span class="sa"></span></th>
                 <th data-c="player_name">Name <span class="sa"></span></th>
                 <th data-c="country">Country <span class="sa"></span></th>
-                <th data-c="avatar_id">Avatar <span class="sa"></span></th>
+                <th data-c="avatar_id">Av ID <span class="sa"></span></th>
+                <th data-c="avatar_url">Avatar <span class="sa"></span></th>
                 <th data-c="last_login">Last Login <span class="sa"></span></th>
+                <th style="width:80px;text-align:center;cursor:default">Actions</th>
             </tr></thead><tbody id="tb-p"></tbody></table>
         </div>
         <div id="sub-stats" class="sub-panel">
-            <div class="search-bar"><input type="text" id="ss" placeholder="Search by name or ID..."></div>
+            <div class="search-bar"><input type="text" id="ss" placeholder="Search by name or ID..."><span class="row-count" id="rc-s"></span><select class="limit-select" id="limit-s"><option value="20">20</option><option value="50" selected>50</option><option value="Infinity">All</option></select></div>
             <table><thead><tr>
                 <th data-c="playfab_id">PlayFab ID <span class="sa"></span></th>
                 <th data-c="player_name">Name <span class="sa"></span></th>
@@ -146,21 +153,35 @@ function fmt(v) { if (!v) return '-'; try { const d = new Date(v); return d.toLo
 
 function renderP() {
     const q = document.getElementById('sp').value.toLowerCase();
+    const limit = document.getElementById('limit-p').value;
+    const max = limit === 'Infinity' ? Infinity : parseInt(limit);
     let rows = P;
-    if (q) rows = rows.filter(r => (r.playfab_id||'').toLowerCase().includes(q) || (r.player_name||'').toLowerCase().includes(q) || (r.country||'').toLowerCase().includes(q));
+    if (q) rows = rows.filter(r => (r.playfab_id||'').toLowerCase().includes(q) || (r.player_name||'').toLowerCase().includes(q) || (r.country||'').toLowerCase().includes(q) || (r.avatar_url||'').toLowerCase().includes(q));
     rows = srt(rows, 'p');
+    const total = rows.length;
+    const limited = max < total;
+    rows = rows.slice(0, max);
     const tb = document.getElementById('tb-p');
-    if (!rows.length) { tb.innerHTML = '<tr><td colspan="5" class="empty">No players found</td></tr>'; return; }
-    tb.innerHTML = rows.map(r => '<tr><td><code>' + esc(r.playfab_id) + '</code></td><td>' + esc(r.player_name||'-') + '</td><td>' + esc(r.country||'-') + '</td><td>' + esc(r.avatar_id ?? '-') + '</td><td>' + fmt(r.last_login) + '</td></tr>').join('');
+    const rc = document.getElementById('rc-p');
+    if (!total) { tb.innerHTML = '<tr><td colspan="7" class="empty">No players found</td></tr>'; rc.textContent = ''; return; }
+    rc.textContent = limited ? '1\u2013' + max + ' of ' + total : total + ' player' + (total !== 1 ? 's' : '');
+    tb.innerHTML = rows.map(r => '<tr><td><code>' + esc(r.playfab_id) + '</code></td><td>' + esc(r.player_name||'-') + '</td><td>' + esc(r.country||'-') + '</td><td>' + esc(r.avatar_id ?? '-') + '</td><td>' + (r.avatar_url ? '<img src="' + esc(r.avatar_url) + '" style="width:32px;height:32px;border-radius:4px;object-fit:cover" title="' + esc(r.avatar_url) + '">' : '-') + '</td><td>' + fmt(r.last_login) + '</td><td style="text-align:center"><button class="btn-del" onclick="deletePlayer(\\'' + esc(r.playfab_id) + '\\')">Delete</button></td></tr>').join('');
 }
 
 function renderS() {
     const q = document.getElementById('ss').value.toLowerCase();
+    const limit = document.getElementById('limit-s').value;
+    const max = limit === 'Infinity' ? Infinity : parseInt(limit);
     let rows = S;
     if (q) rows = rows.filter(r => (r.playfab_id||'').toLowerCase().includes(q) || (r.player_name||'').toLowerCase().includes(q));
     rows = srt(rows, 's');
+    const total = rows.length;
+    const limited = max < total;
+    rows = rows.slice(0, max);
     const tb = document.getElementById('tb-s');
-    if (!rows.length) { tb.innerHTML = '<tr><td colspan="9" class="empty">No stats found</td></tr>'; return; }
+    const rc = document.getElementById('rc-s');
+    if (!total) { tb.innerHTML = '<tr><td colspan="9" class="empty">No stats found</td></tr>'; rc.textContent = ''; return; }
+    rc.textContent = limited ? '1\u2013' + max + ' of ' + total : total + ' player' + (total !== 1 ? 's' : '');
     tb.innerHTML = rows.map(r => {
         const played = Number(r.games_played)||0, won = Number(r.games_won)||0;
         const badge = played >= 50 ? 'badge-green' : played >= 10 ? 'badge-blue' : 'badge-yellow';
@@ -191,7 +212,17 @@ function srt(rows, k) {
     });
 }
 
-
+async function deletePlayer(id) {
+    if (!confirm('Delete player ' + id + '? This will remove all associated data (stats, invites, matches, tokens).')) return;
+    try {
+        const r = await fetch('/api/player/' + encodeURIComponent(id), { method: 'DELETE' });
+        const d = await r.json();
+        if (d.success) location.reload();
+        else alert('Failed: ' + (d.error || 'unknown error'));
+    } catch (e) {
+        alert('Network error: ' + e.message);
+    }
+}
 
 document.querySelectorAll('.sub-tab').forEach(b => b.addEventListener('click', () => {
     document.querySelectorAll('.sub-tab').forEach(x => x.classList.remove('active'));
@@ -213,6 +244,8 @@ document.querySelectorAll('th[data-c]').forEach(th => th.addEventListener('click
 document.getElementById('sp').addEventListener('input', renderP);
 document.getElementById('ss').addEventListener('input', renderS);
 document.getElementById('si').addEventListener('input', renderI);
+document.getElementById('limit-p').addEventListener('change', renderP);
+document.getElementById('limit-s').addEventListener('change', renderS);
 
 renderP(); renderS(); renderI();
 </script>

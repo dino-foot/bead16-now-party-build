@@ -12,6 +12,7 @@ import { DEFAULT_AVATAR_ID, DEFAULT_AVATAR_URL, DEFAULT_BEAD_ID, DEFAULT_ENTRY_F
 import { ChatHandler } from "./chat/ChatHandler.js";
 import { generateUniqueRoomId, releaseRoomId } from "./utils/GenerateUniqueRoomId.js";
 import { PRIVATE_ROOM_PREFIX } from "../routes/privateRoom.js";
+import { MatchHistoryService } from "../services/MatchHistoryService.js";
 class Bead16RoomState extends Schema {
     constructor() {
         super(...arguments);
@@ -193,7 +194,7 @@ export class MyRoom extends Room {
         // Send chat history to the newly joined player
         this.chatHandler.sendHistory(client);
     } // end onJoin
-    startGame() {
+    async startGame() {
         console.log("Both players joined! Initializing game state...");
         this.state.gameState.gameStatus = "START";
         this.state.gameState.setNextTurnTimestamp(); // start initial timer
@@ -201,6 +202,14 @@ export class MyRoom extends Room {
         this.setSimulationInterval((deltaTime) => {
             this.update(deltaTime);
         }, 100);
+        // record match history as recent player
+        try {
+            await MatchHistoryService.recordMatch(this.state.gameState?.players[0]?.playfabId, this.state.gameState?.players[1]?.playfabId);
+            console.log(`[MATCH_HISTORY] Recorded`);
+        }
+        catch (err) {
+            console.error("[MATCH] Failed to record match history ", err);
+        }
     }
     update(deltaTime) {
         const game = this.state.gameState;

@@ -54,7 +54,7 @@ export class ChatHandler {
                     ? sanitizeInput(msg.senderName, this.MAX_NAME_LENGTH)
                     : `Guest_${client.sessionId.substring(0, 4)}`,
                 avatarUrl: typeof msg.avatarUrl === "string"
-                    ? sanitizeInput(msg.avatarUrl, this.MAX_AVATAR_LENGTH)
+                    ? msg.avatarUrl
                     : "0",
                 content: sanitizedContent,
                 type: sanitizedType,

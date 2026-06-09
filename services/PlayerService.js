@@ -17,17 +17,17 @@ export class PlayerService {
         const client = await pool.connect();
         try {
             await client.query('BEGIN');
-            // 1. Upsert Identity 
-            // We removed 'last_login' and updated 'created_at' instead 
-            // to match your image columns.
+            // 1. Upsert Identity
+            // Don't overwrite avatar_url with null/empty to preserve uploads
             await client.query(`
                 INSERT INTO players (playfab_id, player_name, country, avatar_id, avatar_url)
                 VALUES ($1, $2, $3, $4, $5)
                 ON CONFLICT (playfab_id) DO UPDATE SET
-                    player_name = EXCLUDED.player_name,
-                    country = EXCLUDED.country,
-                    avatar_url = EXCLUDED.avatar_url,
-                    avatar_id = EXCLUDED.avatar_id,
+                    player_name = COALESCE(NULLIF(EXCLUDED.player_name, ''), players.player_name),
+                    country = COALESCE(NULLIF(EXCLUDED.country, ''), players.country),
+                    avatar_url = CASE WHEN EXCLUDED.avatar_url IS NOT NULL AND EXCLUDED.avatar_url != ''
+                                     THEN EXCLUDED.avatar_url ELSE players.avatar_url END,
+                    avatar_id = COALESCE(EXCLUDED.avatar_id, players.avatar_id),
                     last_login = CURRENT_TIMESTAMP; 
             `, [data.playfab_id, data.player_name, data.country, data.avatar_id, data.avatar_url]);
             // 2. Ensure Stats exist

@@ -6,6 +6,7 @@ import { WebSocketTransport } from "@colyseus/ws-transport";
 import { reservePrivateRoom, joinPrivateRoom, getPrivateRoomStatus, } from "./routes/privateRoom.js";
 import { dashboardHandler } from "./routes/dashboard.js";
 import { playgroundPage } from "./routes/playground.js";
+import playerRoutes from "./routes/player.js";
 /**
  * Import your Room files
  */
@@ -13,6 +14,7 @@ import { MyRoom } from "./rooms/MyRoom.js";
 import { MAX_CLIENTS, MAX_PLAYERS, ENABLE_CHATROOM } from "./rooms/Constants/Global.js";
 import express from "express";
 import { PlayerService } from "./services/PlayerService.js";
+import { generateAvatarUploadUrl, confirmAvatar, generateAvatarReadUrl } from "./services/AvatarService.js";
 import { PushNotificationService, PushNotificationType } from "./services/PushNotificationService.js";
 import { InviteService } from "./services/InviteService.js";
 const basicAuthMiddleware = basicAuth({
@@ -63,10 +65,10 @@ const server = defineServer({
     routes: createRouter({
         version: createEndpoint("/version", { method: "GET" }, async (ctx) => {
             return {
-                version: "0.2.1",
+                version: "0.2.2",
                 timestamp: new Date().toISOString(),
                 versionInfo: {
-                    "releaseNote": "Push Notif | Deep Link"
+                    "releaseNote": "Recent Player | S3 Avatar upload"
                 }
             };
         }),
@@ -148,38 +150,60 @@ const server = defineServer({
         });
         //? ========== AVATAR UPLOAD API ==========
         // GET /api/avatar/upload-url?playfab_id=xxx&content_type=image/png
-        // app.get("/api/avatar/upload-url", async (req, res) => {
-        //     try {
-        //         const { playfab_id, content_type } = req.query;
-        //         if (!playfab_id || typeof playfab_id !== "string") {
-        //             res.status(400).json({ error: "playfab_id query param is required" });
-        //             return;
-        //         }
-        //         const ct = (typeof content_type === "string" && content_type.startsWith("image/"))
-        //             ? content_type
-        //             : "image/png";
-        //         const result = await generateAvatarUploadUrl(playfab_id, ct);
-        //         res.json(result);
-        //     } catch (error: any) {
-        //         console.error("[AVATAR] Upload URL error:", error);
-        //         res.status(500).json({ error: error.message || "Failed to generate upload URL" });
-        //     }
-        // });
+        app.get("/api/avatar/upload-url", async (req, res) => {
+            try {
+                const { playfab_id, content_type } = req.query;
+                if (!playfab_id || typeof playfab_id !== "string") {
+                    res.status(400).json({ error: "playfab_id query param is required" });
+                    return;
+                }
+                const ct = (typeof content_type === "string" && content_type.startsWith("image/"))
+                    ? content_type
+                    : "image/png";
+                const result = await generateAvatarUploadUrl(playfab_id, ct);
+                // const baseUrl = `${req.protocol}://${req.get("host")}`;
+                // res.json({ ...result, avatarUrl: `${baseUrl}${result.avatarUrl}` });
+                res.json(result);
+            }
+            catch (error) {
+                console.error("[AVATAR] Upload URL error:", error);
+                res.status(500).json({ error: error.message || "Failed to generate upload URL" });
+            }
+        });
         // POST /api/avatar/confirm { playfab_id: "xxx" }
-        // app.post("/api/avatar/confirm", async (req, res) => {
-        //     try {
-        //         const { playfab_id } = req.body;
-        //         if (!playfab_id) {
-        //             res.status(400).json({ error: "playfab_id is required" });
-        //             return;
-        //         }
-        //         const avatarUrl = await confirmAvatar(playfab_id);
-        //         res.json({ success: true, avatar_url: avatarUrl });
-        //     } catch (error: any) {
-        //         console.error("[AVATAR] Confirm error:", error);
-        //         res.status(500).json({ error: error.message || "Failed to confirm avatar" });
-        //     }
-        // });
+        app.post("/api/avatar/confirm", async (req, res) => {
+            try {
+                const { playfab_id } = req.body;
+                if (!playfab_id) {
+                    res.status(400).json({ error: "playfab_id is required" });
+                    return;
+                }
+                const avatarUrl = await confirmAvatar(playfab_id);
+                // const baseUrl = `${req.protocol}://${req.get("host")}`;
+                // res.json({ success: true, avatar_url: `${baseUrl}${avatarUrl}` });
+                res.json({ success: true, avatar_url: avatarUrl });
+            }
+            catch (error) {
+                console.error("[AVATAR] Confirm error:", error);
+                res.status(500).json({ error: error.message || "Failed to confirm avatar" });
+            }
+        });
+        // GET /api/avatar/:playfabId — redirect to presigned S3 URL
+        app.get("/api/avatar/:playfabId", async (req, res) => {
+            try {
+                const { playfabId } = req.params;
+                if (!playfabId) {
+                    res.status(400).json({ error: "playfabId is required" });
+                    return;
+                }
+                const signedUrl = await generateAvatarReadUrl(playfabId);
+                res.redirect(302, signedUrl);
+            }
+            catch (error) {
+                console.error("[AVATAR] Read URL error:", error);
+                res.status(500).json({ error: error.message || "Failed to serve avatar" });
+            }
+        });
         //? ========== FCM TOKEN API ==========
         // POST /api/fcm-token - Register or update an FCM device token
         app.post("/api/fcm-token", async (req, res) => {
@@ -298,6 +322,8 @@ const server = defineServer({
                 res.status(500).json({ error: error.message || "Failed to decline invitation" });
             }
         });
+        //? ========== PLAYER ROUTES (Recent Players, Profile) ==========
+        app.use("/api/player", playerRoutes);
         /**
          * Use @colyseus/playground
          * (It is not recommended to expose this route in a production environment)
@@ -305,8 +331,6 @@ const server = defineServer({
         if (process.env.SAMPLE !== "production") {
             app.use("/colyseus", playground());
             app.get("/", playgroundPage);
-            // simulate 200ms latency between server and client.
-            // server.simulateLatency(200);
         }
         /**
          * Use @colyseus/monitor
