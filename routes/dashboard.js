@@ -1,4 +1,5 @@
 import pool from "../db/db.js";
+const DASHBOARD_ROW_LIMIT = 100;
 export async function dashboardHandler(_req, res) {
     try {
         const [players, stats, invitations] = await Promise.all([
@@ -6,18 +7,21 @@ export async function dashboardHandler(_req, res) {
                 SELECT playfab_id, player_name, country, avatar_id, avatar_url, last_login
                 FROM players
                 ORDER BY last_login DESC NULLS LAST
+                LIMIT ${DASHBOARD_ROW_LIMIT}
             `),
             pool.query(`
                 SELECT ps.playfab_id, p.player_name, ps.level, ps.exp, ps.coins, ps.games_played, ps.games_won, ps.updated_at
                 FROM player_stats ps
                 LEFT JOIN players p ON p.playfab_id = ps.playfab_id
                 ORDER BY ps.games_played DESC
+                LIMIT ${DASHBOARD_ROW_LIMIT}
             `),
             pool.query(`
                 SELECT i.id, i.sender_playfab_id, i.sender_name, i.recipient_playfab_id, rp.player_name AS recipient_name, i.room_code, i.entry_fee, i.status, i.created_at, i.expires_at
                 FROM invitations i
                 LEFT JOIN players rp ON rp.playfab_id = i.recipient_playfab_id
                 ORDER BY i.created_at DESC
+                LIMIT ${DASHBOARD_ROW_LIMIT}
             `),
         ]);
         res.send(renderDashboard(players.rows, stats.rows, invitations.rows));
