@@ -7,6 +7,7 @@ import { reservePrivateRoom, joinPrivateRoom, getPrivateRoomStatus, } from "./ro
 import { dashboardHandler } from "./routes/dashboard.js";
 import { playgroundPage } from "./routes/playground.js";
 import playerRoutes from "./routes/player.js";
+import leaderboardRoutes from "./routes/leaderboard.js";
 /**
  * Import your Room files
  */
@@ -65,10 +66,10 @@ const server = defineServer({
     routes: createRouter({
         version: createEndpoint("/version", { method: "GET" }, async (ctx) => {
             return {
-                version: "0.2.2",
+                version: "0.2.3",
                 timestamp: new Date().toISOString(),
                 versionInfo: {
-                    "releaseNote": "Recent Player | S3 Avatar upload"
+                    "releaseNote": "Leaderboard migration | Weekly Cron job"
                 }
             };
         }),
@@ -324,6 +325,8 @@ const server = defineServer({
         });
         //? ========== PLAYER ROUTES (Recent Players, Profile) ==========
         app.use("/api/player", playerRoutes);
+        //? ========== LEADERBOARD ROUTES (Country dropdown + country-wise rankings) ==========
+        app.use("/api/leaderboard", leaderboardRoutes);
         /**
          * Use @colyseus/playground
          * (It is not recommended to expose this route in a production environment)

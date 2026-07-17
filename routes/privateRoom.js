@@ -80,6 +80,22 @@ export async function reservePrivateRoom(presence, body) {
     };
     // Store in Redis with TTL
     await presence.setex(PRIVATE_ROOM_PREFIX + roomCode, JSON.stringify(roomData), PRIVATE_ROOM_TTL);
+    // Reap the $bead16_rooms hash entry if this reservation is ever abandoned.
+    // presence.hset/hdel have no TTL of their own (see GenerateUniqueRoomId.ts), so
+    // without this the room code would stay reserved in memory forever whenever
+    // P1 never calls join/status again after reserving.
+    setTimeout(async () => {
+        try {
+            const stillReserved = await presence.get(PRIVATE_ROOM_PREFIX + roomCode);
+            if (!stillReserved) {
+                await releaseRoomId(presence, roomCode);
+                console.log(`[PRIVATE ROOM] Reaped abandoned reservation ${roomCode}`);
+            }
+        }
+        catch (e) {
+            // best-effort cleanup, ignore
+        }
+    }, PRIVATE_ROOM_TTL * 1000);
     console.log(`[PRIVATE ROOM] Reserved: ${roomCode} by ${player.playfabId}`);
     return roomData;
 }

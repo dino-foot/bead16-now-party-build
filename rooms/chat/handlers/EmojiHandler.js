@@ -4,6 +4,7 @@ export class EmojiHandler extends BaseHandler {
         super(...arguments);
         this.reactions = new Map();
         this.MAX_REACTIONS_PER_MSG = 50;
+        this.MAX_TRACKED_MESSAGES = 500;
     }
     setup() {
         this.room.onMessage("SEND_EMOJI_REACTION", (client, data) => {
@@ -18,6 +19,10 @@ export class EmojiHandler extends BaseHandler {
                 userName: data.userName?.slice(0, 25) || `Guest_${client.sessionId.substring(0, 4)}`,
             };
             if (!this.reactions.has(reaction.messageId)) {
+                if (this.reactions.size >= this.MAX_TRACKED_MESSAGES) {
+                    const oldestMessageId = this.reactions.keys().next().value;
+                    this.reactions.delete(oldestMessageId);
+                }
                 this.reactions.set(reaction.messageId, []);
             }
             const msgReactions = this.reactions.get(reaction.messageId);

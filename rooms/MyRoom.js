@@ -8,7 +8,7 @@ import { Room, CloseCode } from "@colyseus/core";
 import { MapSchema, Schema, type } from "@colyseus/schema";
 import { GameState } from "./game/GameState.js";
 import { Player } from "./game/Bead16Schemas.js";
-import { DEFAULT_AVATAR_ID, DEFAULT_AVATAR_URL, DEFAULT_BEAD_ID, DEFAULT_ENTRY_FEE, DEFAULT_COUNTRY, DEFAULT_FRAME_ID, MATCH_COMMISSION, DEFAULT_TURN_TIME, FAST_AUTOPLAY_TIME_MS, MAX_CLIENTS } from "./Constants/Global.js";
+import { DEFAULT_AVATAR_ID, DEFAULT_AVATAR_URL, DEFAULT_BEAD_ID, DEFAULT_ENTRY_FEE, DEFAULT_COUNTRY, DEFAULT_FRAME_ID, MATCH_COMMISSION, DEFAULT_TURN_TIME, FAST_AUTOPLAY_TIME_MS, MAX_CLIENTS, PRIVATE_ROOM_JOIN_GRACE_MS } from "./Constants/Global.js";
 import { ChatHandler } from "./chat/ChatHandler.js";
 import { generateUniqueRoomId, releaseRoomId } from "./utils/GenerateUniqueRoomId.js";
 import { PRIVATE_ROOM_PREFIX } from "../routes/privateRoom.js";
@@ -79,19 +79,32 @@ export class MyRoom extends Room {
             // Use reserved room code if provided (from REST API polling flow)
             if (options.reservedRoomCode) {
                 this.roomId = options.reservedRoomCode;
+                // This room only exists because BOTH players already completed the REST
+                // reserve/join handshake, so both sockets are expected to connect within
+                // seconds. If one side never actually connects (app backgrounded, crashed,
+                // or the invite was accepted after the inviter already left), fail fast
+                // instead of leaving whoever DID connect stuck waiting forever.
+                this.clock.setTimeout(() => {
+                    const realPlayers = Array.from(this.state.players.values()).filter(p => !p.isSpectator);
+                    if (realPlayers.length < 2) {
+                        console.log(`[PRIVATE ROOM] Opponent failed to connect within grace period. Disposing room: ${this.roomId}`);
+                        this.broadcast("NO_ACTIVE_PLAYERS", { reason: "Opponent failed to join in time" });
+                        this.disconnect(); // Disconnect all connected clients, and then dispose the room.
+                    }
+                }, PRIVATE_ROOM_JOIN_GRACE_MS);
             }
             else {
                 // generate 5 digit unique room id and save to presence for express route to query and join
                 this.roomId = await generateUniqueRoomId(this.presence, options.entryFee || DEFAULT_ENTRY_FEE);
+                // Auto-dispose private room if no players join within 5 minutes
+                this.clock.setTimeout(() => {
+                    const realPlayers = Array.from(this.state.players.values()).filter(p => !p.isSpectator);
+                    if (realPlayers.length === 0) {
+                        console.log(`[PRIVATE ROOM] No players joined within timeout. Disposing room: ${this.roomId}`);
+                        this.disconnect(); // Disconnect all connected clients, and then dispose the room.
+                    }
+                }, 5 * 60 * 1000); // 5 minutes
             }
-            // Auto-dispose private room if no players join within 5 minutes
-            this.clock.setTimeout(() => {
-                const realPlayers = Array.from(this.state.players.values()).filter(p => !p.isSpectator);
-                if (realPlayers.length === 0) {
-                    console.log(`[PRIVATE ROOM] No players joined within timeout. Disposing room: ${this.roomId}`);
-                    this.disconnect(); // Disconnect all connected clients, and then dispose the room.
-                }
-            }, 5 * 60 * 1000); // 5 minutes
             // Broadcast "waiting" status for private rooms
             // this.broadcast("ROOM_STATUS", { status: "waiting", message: "Waiting for players..." });
         }

@@ -24,6 +24,31 @@ export class PushNotificationService {
         console.log(`[PUSH] Unregistered FCM token for player ${playfabId}`);
     }
     static async sendMessageNotification(recipientPlayfabId, senderName, senderPlayfabId, type = PushNotificationType.MessageNotification, roomCode, entryFee) {
+        const data = {
+            type: String(type),
+            senderPlayfabId,
+            senderName,
+        };
+        if (type === PushNotificationType.RoomInvite && roomCode) {
+            data.roomCode = roomCode;
+            data.entryFee = String(entryFee ?? DEFAULT_ENTRY_FEE);
+        }
+        return PushNotificationService.deliver(recipientPlayfabId, senderName, getNotificationBody(type, senderName), data);
+    }
+    /**
+     * Notifies a weekly-leaderboard winner that their reward coins have already been
+     * credited to their account. Called by WeeklyResetService after the Monday reset
+     * commits - not sender-based like sendMessageNotification, so it builds its own
+     * title/body instead of going through getNotificationBody.
+     */
+    static async sendWeeklyRewardNotification(playfabId, rank, coins) {
+        return PushNotificationService.deliver(playfabId, "Collect 🏆 Weekly League Reward!", `You finished #${rank} this, collect ${coins} coins!`, {
+            type: String(PushNotificationType.WeeklyReward),
+            rank: String(rank),
+            coins: String(coins),
+        });
+    }
+    static async deliver(recipientPlayfabId, title, body, data) {
         const messaging = getFirebaseMessaging();
         if (!messaging) {
             console.error("[PUSH] Firebase Messaging not initialized");
@@ -35,24 +60,14 @@ export class PushNotificationService {
             return { success: true, sentCount: 0 };
         }
         const tokens = result.rows.map(row => row.token);
-        let body = getNotificationBody(type, senderName);
         const androidNotification = {
             icon: "ic_notification",
             sound: "default",
             defaultSound: true,
         };
-        const data = {
-            type: String(type),
-            senderPlayfabId,
-            senderName,
-        };
-        if (type === PushNotificationType.RoomInvite && roomCode) {
-            data.roomCode = roomCode;
-            data.entryFee = String(entryFee ?? DEFAULT_ENTRY_FEE);
-        }
         const message = {
             notification: {
-                title: senderName,
+                title,
                 body,
             },
             android: {
@@ -92,6 +107,7 @@ export var PushNotificationType;
     PushNotificationType[PushNotificationType["MessageNotification"] = 0] = "MessageNotification";
     PushNotificationType[PushNotificationType["FriendRequest"] = 1] = "FriendRequest";
     PushNotificationType[PushNotificationType["RoomInvite"] = 2] = "RoomInvite";
+    PushNotificationType[PushNotificationType["WeeklyReward"] = 3] = "WeeklyReward";
 })(PushNotificationType || (PushNotificationType = {}));
 export function getNotificationBody(type, senderName) {
     switch (type) {

@@ -75,7 +75,7 @@ export class PlayerService {
                 idx++;
             }
             else if (hasIncrement) {
-                updates.push(`${col} = ${col} + $${idx}`);
+                updates.push(`${col} = ${col} + $${idx}`); // games_won = games_won + $1`.
                 values.push(data.increment[col]);
                 idx++;
             }
@@ -85,10 +85,31 @@ export class PlayerService {
         }
         updates.push("updated_at = CURRENT_TIMESTAMP");
         values.push(data.playfab_id);
-        const result = await pool.query(`UPDATE player_stats SET ${updates.join(", ")} WHERE playfab_id = $${idx} RETURNING *`, values);
-        if (result.rowCount === 0) {
-            throw new Error("Player stats not found");
+        const isRealWin = (data.increment?.games_won ?? 0) > 0;
+        const client = await pool.connect();
+        try {
+            await client.query('BEGIN');
+            const result = await client.query(`UPDATE player_stats SET ${updates.join(", ")} WHERE playfab_id = $${idx} RETURNING *`, values);
+            if (result.rowCount === 0) {
+                throw new Error("Player stats not found");
+            }
+            // Bump this week's counter so the weekly leaderboard is a direct read
+            // instead of counting rows - games_won above is the lifetime counter.
+            if (isRealWin) {
+                await client.query(`INSERT INTO weekly_player_stats (playfab_id, week_start, wins, updated_at)
+                     VALUES ($1, date_trunc('week', NOW()), 1, NOW())
+                     ON CONFLICT (playfab_id, week_start)
+                     DO UPDATE SET wins = weekly_player_stats.wins + 1, updated_at = NOW()`, [data.playfab_id]);
+            }
+            await client.query('COMMIT');
+            return result.rows[0];
         }
-        return result.rows[0];
+        catch (err) {
+            await client.query('ROLLBACK');
+            throw err;
+        }
+        finally {
+            client.release();
+        }
     }
 }

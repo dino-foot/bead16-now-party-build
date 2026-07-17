@@ -73,4 +73,7 @@ export class MessageHandler extends BaseHandler {
             client.send("CHAT_HISTORY", this.chatHistory);
         }
     }
+    clearSession(sessionId) {
+        this.lastMessageTime.delete(sessionId);
+    }
 }

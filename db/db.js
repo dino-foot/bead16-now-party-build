@@ -90,6 +90,24 @@ export async function ensureTablesExist() {
         ON matches (LEAST(player1_playfab_id, player2_playfab_id), GREATEST(player1_playfab_id, player2_playfab_id));
     `);
     console.log("[DB] Ensured matches table exists");
+    // weekly_player_stats: one row per player per calendar week, incremented in place
+    // on each win - same idea as player_stats.games_won (a real counter) but scoped
+    // to the week, so weekly leaderboard reads are a direct indexed lookup/sort
+    // instead of a COUNT/GROUP BY over an ever-growing event log.
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS weekly_player_stats (
+            playfab_id VARCHAR(50) NOT NULL REFERENCES players(playfab_id) ON DELETE CASCADE,
+            week_start TIMESTAMPTZ NOT NULL,
+            wins INTEGER NOT NULL DEFAULT 0,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (playfab_id, week_start)
+        );
+    `);
+    await pool.query(`
+        CREATE INDEX IF NOT EXISTS idx_weekly_player_stats_week_wins
+        ON weekly_player_stats(week_start, wins DESC);
+    `);
+    console.log("[DB] Ensured weekly_player_stats table exists");
 }
 export default pool;
 // postgresql://postgres:IYEHQTZzGipzGSVGnSJiqAHfNKFgiRNI@roundhouse.proxy.rlwy.net:27562/railway
