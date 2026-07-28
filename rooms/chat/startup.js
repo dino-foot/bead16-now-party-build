@@ -1,7 +1,16 @@
 import { matchMaker } from "@colyseus/core";
-import { CHAT_ROOMS, CHAT_ROOM_NAME } from "./ChatRoomConfig.js";
+import { CHAT_ROOM_NAME } from "./ChatRoomConfig.js";
+import { ChatRoomConfigService } from "../../services/ChatRoomConfigService.js";
 export async function precreateChatRooms() {
-    for (const config of CHAT_ROOMS) {
+    let configs;
+    try {
+        configs = await ChatRoomConfigService.getAllRoomConfigs(true);
+    }
+    catch (e) {
+        console.error("[CHAT] Failed to load chatroom_config (has the migration been run?):", e);
+        return;
+    }
+    for (const config of configs) {
         try {
             const existing = await matchMaker.query({ name: CHAT_ROOM_NAME });
             const alreadyExists = existing.some((r) => r.metadata?.roomCategory === config.category);
@@ -18,5 +27,5 @@ export async function precreateChatRooms() {
             console.error(`[CHAT] Failed to pre-create room ${config.category}:`, e);
         }
     }
-    console.log(`[CHAT] All rooms pre-created. Total: ${CHAT_ROOMS.length}`);
+    console.log(`[CHAT] All rooms pre-created. Total: ${configs.length}`);
 }

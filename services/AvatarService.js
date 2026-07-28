@@ -36,7 +36,7 @@ export async function confirmAvatar(playfabId) {
     // Note: compression temporarily disabled for debugging
     const rawBuffer = await Body.transformToByteArray();
     const compressed = await sharp(rawBuffer)
-        .resize(400, 400, { fit: "cover" })
+        .resize(512, 512, { fit: "cover" })
         .jpeg({ quality: 80 })
         .toBuffer();
     await s3.send(new PutObjectCommand({

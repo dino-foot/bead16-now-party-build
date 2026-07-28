@@ -27,9 +27,14 @@ export async function ensureTablesExist() {
             country VARCHAR(5),
             avatar_id INTEGER DEFAULT 0,
             avatar_url TEXT,
+            is_vip BOOLEAN NOT NULL DEFAULT false,
             created_at TIMESTAMPTZ DEFAULT NOW(),
             last_login TIMESTAMPTZ
         );
+    `);
+    // Backfills is_vip on databases where players already existed before this was added.
+    await pool.query(`
+        ALTER TABLE players ADD COLUMN IF NOT EXISTS is_vip BOOLEAN NOT NULL DEFAULT false;
     `);
     console.log("[DB] Ensured players table exists");
     await pool.query(`
@@ -108,6 +113,63 @@ export async function ensureTablesExist() {
         ON weekly_player_stats(week_start, wins DESC);
     `);
     console.log("[DB] Ensured weekly_player_stats table exists");
+    // Rank-drop tracking columns, added on top of the existing weekly_player_stats
+    // table rather than a new one - rank only ever needs comparing within the
+    // *current* week, and this table already gets fresh rows each week, so piggy-
+    // backing here gives the tracker a free weekly reset with no extra cleanup code.
+    //
+    // last_known_rank: the rank RankDropService saw this player at on its last scan.
+    // NULL means "never scanned yet" - used to seed a baseline silently instead of
+    // firing a false "drop" the first time a player is picked up.
+    //
+    // last_notified_date: UTC calendar date of the last rank-drop push sent to this
+    // player, used to enforce the once-per-day debounce.
+    await pool.query(`
+        ALTER TABLE weekly_player_stats ADD COLUMN IF NOT EXISTS last_known_rank INTEGER;
+    `);
+    await pool.query(`
+        ALTER TABLE weekly_player_stats ADD COLUMN IF NOT EXISTS last_notified_date DATE;
+    `);
+    console.log("[DB] Ensured weekly_player_stats rank-drop tracking columns exist");
+    // chatroom_config: admin-editable metadata for the predefined lobby chat
+    // rooms (cover image, join-lock thresholds) - lets these change without a
+    // server redeploy, unlike the old hardcoded CHAT_ROOMS array.
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS chatroom_config (
+            category VARCHAR(50) PRIMARY KEY,
+            label VARCHAR(100) NOT NULL,
+            cover_image_url TEXT,
+            iso_code VARCHAR(10),
+            required_level INTEGER NOT NULL DEFAULT 0,
+            required_coins INTEGER NOT NULL DEFAULT 0,
+            max_clients INTEGER NOT NULL DEFAULT 100,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            is_active BOOLEAN NOT NULL DEFAULT true,
+            is_vip BOOLEAN NOT NULL DEFAULT false,
+            updated_at TIMESTAMPTZ DEFAULT NOW()
+        );
+    `);
+    // Backfills columns on databases where chatroom_config already existed
+    // before these were added (CREATE TABLE IF NOT EXISTS above is a no-op there).
+    await pool.query(`
+        ALTER TABLE chatroom_config ADD COLUMN IF NOT EXISTS is_vip BOOLEAN NOT NULL DEFAULT false;
+    `);
+    await pool.query(`
+        ALTER TABLE chatroom_config ADD COLUMN IF NOT EXISTS iso_code VARCHAR(10);
+    `);
+    console.log("[DB] Ensured chatroom_config table exists");
+    await pool.query(`
+        INSERT INTO chatroom_config (category, label, iso_code, required_level, required_coins, max_clients, sort_order)
+        VALUES
+            ('NEW_COMER', 'New Comer', NULL, 0, 0, 100, 0),
+            ('PK', 'Pakistan', 'PAK', 0, 0, 100, 1),
+            ('BD', 'Bangladesh', 'BGD', 0, 0, 100, 2),
+            ('VIP', 'VIP', 'GL', 0, 0, 200, 3),
+            ('INDIA', 'India', 'IND', 0, 0, 100, 4),
+            ('SAUDI ARABIA', 'SAUDI ARABIA', 'SA', 0, 0, 100, 5)
+        ON CONFLICT (category) DO NOTHING;
+    `);
+    console.log("[DB] Seeded default chatroom_config rows");
 }
 export default pool;
 // postgresql://postgres:IYEHQTZzGipzGSVGnSJiqAHfNKFgiRNI@roundhouse.proxy.rlwy.net:27562/railway

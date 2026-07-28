@@ -13,9 +13,12 @@ import leaderboardRoutes from "./routes/leaderboard.js";
  */
 import { MyRoom } from "./rooms/MyRoom.js";
 import { MAX_CLIENTS, MAX_PLAYERS, ENABLE_CHATROOM } from "./rooms/Constants/Global.js";
+import { CHAT_ROOM_NAME } from "./rooms/chat/ChatRoomConfig.js";
+import { ChatRoomConfigService } from "./services/ChatRoomConfigService.js";
 import express from "express";
 import { PlayerService } from "./services/PlayerService.js";
 import { generateAvatarUploadUrl, confirmAvatar, generateAvatarReadUrl } from "./services/AvatarService.js";
+import { uploadChatRoomCover, generateChatRoomCoverReadUrl } from "./services/ChatRoomCoverService.js";
 import { PushNotificationService, PushNotificationType } from "./services/PushNotificationService.js";
 import { InviteService } from "./services/InviteService.js";
 const basicAuthMiddleware = basicAuth({
@@ -66,10 +69,10 @@ const server = defineServer({
     routes: createRouter({
         version: createEndpoint("/version", { method: "GET" }, async (ctx) => {
             return {
-                version: "0.2.3",
+                version: "0.2.4",
                 timestamp: new Date().toISOString(),
                 versionInfo: {
-                    "releaseNote": "Leaderboard migration | Weekly Cron job"
+                    "releaseNote": "chatroom"
                 }
             };
         }),
@@ -370,6 +373,115 @@ const server = defineServer({
             }
             catch (e) {
                 res.status(500).json({ error: "error 500" });
+            }
+        });
+        //? predefined lobby chat rooms - public listing (category, label, cover image,
+        //? lock thresholds, live online count) for the client's room-selection screen
+        app.get("/api/chatrooms", async (req, res) => {
+            try {
+                const configs = await ChatRoomConfigService.getAllRoomConfigs(true);
+                const liveRooms = await matchMaker.query({ name: CHAT_ROOM_NAME });
+                const baseUrl = `${req.protocol}://${req.get("host")}`;
+                const response = configs.map(config => {
+                    const liveRoom = liveRooms.find(r => r.metadata?.roomCategory === config.category);
+                    return {
+                        category: config.category,
+                        label: config.label,
+                        coverImageUrl: config.coverImageUrl ? `${baseUrl}/api/chatrooms/${config.category}/cover` : null,
+                        isoCode: config.isoCode,
+                        requiredLevel: config.requiredLevel,
+                        requiredCoins: config.requiredCoins,
+                        maxClients: config.maxClients,
+                        onlineCount: liveRoom?.clients ?? 0,
+                        isVip: config.isVip,
+                    };
+                });
+                res.json(response);
+            }
+            catch (e) {
+                console.error("[CHAT] Failed to list chatrooms:", e);
+                res.status(500).json({ error: "error 500" });
+            }
+        });
+        //? admin-only: create a new predefined chat room. The single "chat" room type
+        //? already handles any category via the roomCategory option/filter, so this is
+        //? just a config row - no room-type registration needed for new categories.
+        app.post("/api/chatrooms", basicAuthMiddleware, async (req, res) => {
+            try {
+                const { category, label, isoCode, requiredLevel, requiredCoins, maxClients, isVip } = req.body || {};
+                if (!category || !label) {
+                    res.status(400).json({ error: "category and label are required" });
+                    return;
+                }
+                const created = await ChatRoomConfigService.createRoomConfig({
+                    category: String(category),
+                    label: String(label),
+                    isoCode,
+                    requiredLevel,
+                    requiredCoins,
+                    maxClients,
+                    isVip,
+                });
+                res.json({ success: true, room: created });
+            }
+            catch (e) {
+                console.error("[CHAT] Failed to create chatroom:", e);
+                res.status(400).json({ error: e.message || "Failed to create chat room" });
+            }
+        });
+        //? admin-only: edit a predefined chat room's label/cover image/lock thresholds
+        //? without a redeploy. Reuses the same basic-auth credentials as /dashboard.
+        app.patch("/api/chatrooms/:category", basicAuthMiddleware, async (req, res) => {
+            try {
+                const category = String(req.params.category);
+                const { label, coverImageUrl, isoCode, requiredLevel, requiredCoins, isActive, isVip } = req.body || {};
+                const updated = await ChatRoomConfigService.upsertRoomConfig(category, {
+                    label,
+                    coverImageUrl,
+                    isoCode,
+                    requiredLevel,
+                    requiredCoins,
+                    isActive,
+                    isVip,
+                });
+                res.json({ success: true, room: updated });
+            }
+            catch (e) {
+                console.error(`[CHAT] Failed to update chatroom ${req.params.category}:`, e);
+                res.status(400).json({ error: e.message || "Failed to update chat room" });
+            }
+        });
+        //? admin-only: upload a chat room's cover image directly (raw image bytes in the
+        //? request body, e.g. `curl --data-binary @cover.jpg -H "Content-Type: image/jpeg"`).
+        //? Resizes/compresses via sharp, stores it in the shared S3 bucket, and saves the
+        //? resulting public URL onto the room's coverImageUrl in one call.
+        app.post("/api/chatrooms/:category/cover", basicAuthMiddleware, express.raw({ type: "image/*", limit: "10mb" }), async (req, res) => {
+            try {
+                const category = String(req.params.category);
+                if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+                    res.status(400).json({ error: "Request body must be raw image bytes with an image/* Content-Type header" });
+                    return;
+                }
+                const coverImageUrl = await uploadChatRoomCover(category, req.body);
+                const updated = await ChatRoomConfigService.upsertRoomConfig(category, { coverImageUrl });
+                res.json({ success: true, room: updated });
+            }
+            catch (e) {
+                console.error(`[CHAT] Failed to upload cover for ${req.params.category}:`, e);
+                res.status(400).json({ error: e.message || "Failed to upload chat room cover" });
+            }
+        });
+        // GET /api/chatrooms/:category/cover — redirect to a presigned S3 read URL.
+        // Public (no auth) since this just serves an image, same as /api/avatar/:playfabId.
+        app.get("/api/chatrooms/:category/cover", async (req, res) => {
+            try {
+                const category = String(req.params.category);
+                const signedUrl = await generateChatRoomCoverReadUrl(category);
+                res.redirect(302, signedUrl);
+            }
+            catch (e) {
+                console.error(`[CHAT] Failed to serve cover for ${req.params.category}:`, e);
+                res.status(500).json({ error: "Failed to serve chat room cover" });
             }
         });
     }

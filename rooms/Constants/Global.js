@@ -17,19 +17,17 @@ export const DEFAULT_TURN_TIME = 90; // 90 seconds
 export const TIME_1_MIN_MS = 60000;
 export const FAST_AUTOPLAY_TIME_MS = 20000; // 20 second timeout for disconnected autoplay
 export const DRAW_REQUEST_BEADS_THRESHOLD = 16; // player has only 6 beads left can request draw | debug with 15 beads
-export const DUMMY_PLAYER_TIME_MS = 10000; // 10 seconds only 1 player then trigger dummy multiplayer
-
-
+export const DUMMY_PLAYER_TIME_MS = 10000; // 20 seconds only 1 player then trigger dummy multiplayer
 // A private room is only created after BOTH players already completed the REST
 // reserve/join handshake (see routes/privateRoom.ts), so both sockets are expected
 // to connect within seconds. If one side never actually connects (app backgrounded,
 // crashed, invite accepted after the inviter already left), don't leave the other
 // player stuck waiting forever - fail fast instead of waiting the full room lifetime.
-export const PRIVATE_ROOM_JOIN_GRACE_MS = 20000; // 20 seconds to have both real players connected
+export const PRIVATE_ROOM_JOIN_GRACE_MS = 30000; // 30 seconds to have both real players connected
 export const GAME_ID = "bead16_party";
 export const MATCH_COMMISSION = 0.2; // 20% commission on total entry fees
 // Feature toggles
-export const ENABLE_CHATROOM = false;
+export const ENABLE_CHATROOM = true;
 // room clients and specators limits
 export const MAX_PLAYERS = 2;
 export const MAX_SPECTATORS = 6;

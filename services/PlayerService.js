@@ -112,4 +112,12 @@ export class PlayerService {
             client.release();
         }
     }
+    static async setVip(playfabId, isVip) {
+        const result = await pool.query(`UPDATE players SET is_vip = $1 WHERE playfab_id = $2`, [isVip, playfabId]);
+        return (result.rowCount ?? 0) > 0;
+    }
+    static async isVip(playfabId) {
+        const result = await pool.query(`SELECT is_vip FROM players WHERE playfab_id = $1`, [playfabId]);
+        return result.rowCount ? !!result.rows[0].is_vip : false;
+    }
 }

@@ -3,7 +3,7 @@ import { PushNotificationService } from "./PushNotificationService.js";
 import { PlayFabService } from "./PlayFabService.js";
 // Coins awarded for rank 1, 2, 3 of the week that just ended. Adjust here only -
 // nothing else needs to change to retune amounts or reward more/fewer ranks.
-const REWARD_TIERS = [100000, 50000, 25000]; //? add more coins value to reward more ranks
+const REWARD_TIERS = [250000, 100000, 50000, 25000, 10000]; //? add more coins value to reward more ranks
 export class WeeklyResetService {
     /**
      * Finds the top 3 by wins in the calendar week that just ended (Monday 00:00 through

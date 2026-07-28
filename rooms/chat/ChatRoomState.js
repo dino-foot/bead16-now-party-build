@@ -9,7 +9,7 @@ export class ChatUser extends Schema {
     constructor() {
         super(...arguments);
         this.sessionId = "";
-        this.userId = "";
+        this.playfabId = "";
         this.name = "";
         this.country = "";
         this.avatarUrl = "";
@@ -21,7 +21,7 @@ __decorate([
 ], ChatUser.prototype, "sessionId", void 0);
 __decorate([
     type("string")
-], ChatUser.prototype, "userId", void 0);
+], ChatUser.prototype, "playfabId", void 0);
 __decorate([
     type("string")
 ], ChatUser.prototype, "name", void 0);
@@ -34,13 +34,46 @@ __decorate([
 __decorate([
     type("boolean")
 ], ChatUser.prototype, "isOnline", void 0);
+// A voice-party host/speaker slot. VIP rooms are seeded with exactly 9 of
+// these on creation (see ChatRoom.onCreate); non-VIP rooms leave `seats`
+// empty, which the client also uses as its signal for "this room has voice".
+export class Seat extends Schema {
+    constructor() {
+        super(...arguments);
+        this.seatIndex = 0;
+        this.occupied = false;
+        this.sessionId = "";
+        this.userId = "";
+        this.name = "";
+        this.avatarUrl = "";
+    }
+}
+__decorate([
+    type("int32")
+], Seat.prototype, "seatIndex", void 0);
+__decorate([
+    type("boolean")
+], Seat.prototype, "occupied", void 0);
+__decorate([
+    type("string")
+], Seat.prototype, "sessionId", void 0);
+__decorate([
+    type("string")
+], Seat.prototype, "userId", void 0);
+__decorate([
+    type("string")
+], Seat.prototype, "name", void 0);
+__decorate([
+    type("string")
+], Seat.prototype, "avatarUrl", void 0);
 export class ChatRoomState extends Schema {
     constructor() {
         super(...arguments);
         this.roomCategory = "";
         this.roomLabel = "";
-        this.users = new ArraySchema();
+        this.roomPlayers = new ArraySchema();
         this.userCount = 0;
+        this.seats = new ArraySchema();
     }
 }
 __decorate([
@@ -51,7 +84,10 @@ __decorate([
 ], ChatRoomState.prototype, "roomLabel", void 0);
 __decorate([
     type([ChatUser])
-], ChatRoomState.prototype, "users", void 0);
+], ChatRoomState.prototype, "roomPlayers", void 0);
 __decorate([
     type("int32")
 ], ChatRoomState.prototype, "userCount", void 0);
+__decorate([
+    type([Seat])
+], ChatRoomState.prototype, "seats", void 0);

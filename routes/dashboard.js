@@ -2,7 +2,7 @@ import pool from "../db/db.js";
 const DASHBOARD_ROW_LIMIT = 100;
 export async function dashboardHandler(_req, res) {
     try {
-        const [players, stats, invitations] = await Promise.all([
+        const [players, stats, invitations, chatRooms] = await Promise.all([
             pool.query(`
                 SELECT playfab_id, player_name, country, avatar_id, avatar_url, last_login
                 FROM players
@@ -23,15 +23,27 @@ export async function dashboardHandler(_req, res) {
                 ORDER BY i.created_at DESC
                 LIMIT ${DASHBOARD_ROW_LIMIT}
             `),
+            pool.query(`
+                SELECT category, label, cover_image_url, iso_code, required_level, required_coins, max_clients, sort_order, is_active, is_vip
+                FROM chatroom_config
+                ORDER BY sort_order ASC
+            `),
         ]);
-        res.send(renderDashboard(players.rows, stats.rows, invitations.rows));
+        // Normalize to the redirect route rather than trusting whatever's stored (older
+        // rows may still have a pre-migration raw S3 URL) - the S3 key is deterministic
+        // per category, so any non-null value just means "a cover exists".
+        const chatRoomRows = chatRooms.rows.map((r) => ({
+            ...r,
+            cover_image_url: r.cover_image_url ? `/api/chatrooms/${r.category}/cover` : null,
+        }));
+        res.send(renderDashboard(players.rows, stats.rows, invitations.rows, chatRoomRows));
     }
     catch (err) {
         console.error("[DASHBOARD] Failed to render:", err);
         res.status(500).send("Failed to load dashboard data");
     }
 }
-function renderDashboard(players, statsRows, invitations) {
+function renderDashboard(players, statsRows, invitations, chatRooms) {
     const playersJson = JSON.stringify(players);
     const statsJson = JSON.stringify(statsRows.map((r) => {
         const played = Number(r.games_played) || 0;
@@ -39,6 +51,7 @@ function renderDashboard(players, statsRows, invitations) {
         return { ...r, winrate: played > 0 ? Math.round((won / played) * 1000) / 10 : 0 };
     }));
     const invitationsJson = JSON.stringify(invitations);
+    const chatRoomsJson = JSON.stringify(chatRooms);
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -87,6 +100,24 @@ tr:hover td { background: #1c2128; }
 .refresh-btn:hover { background: #30363d; }
 .header-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
 code { background: #1c2128; padding: 2px 6px; border-radius: 4px; font-size: 0.78rem; }
+.cr-grid { display: grid; grid-template-columns: repeat(auto-fill, 270px); gap: 16px; }
+.cr-card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; overflow: hidden; }
+.cr-cover { position: relative; width: 270px; height: 350px; background: #0d1117 center/cover no-repeat; display: flex; align-items: center; justify-content: center; color: #484f58; font-size: 0.78rem; cursor: pointer; }
+.cr-cover:hover::after { content: 'Click to change cover'; position: absolute; inset: 0; background: rgba(0,0,0,0.55); color: #e1e4e8; display: flex; align-items: center; justify-content: center; font-size: 0.78rem; }
+.cr-cover input[type=file] { display: none; }
+.cr-body { padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+.cr-row { display: flex; align-items: center; gap: 8px; }
+.cr-row label { width: 92px; flex-shrink: 0; color: #8b949e; font-size: 0.75rem; }
+.cr-row input[type=text], .cr-row input[type=number] { flex: 1; padding: 5px 8px; background: #0d1117; border: 1px solid #30363d; border-radius: 5px; color: #e1e4e8; font-size: 0.8rem; outline: none; }
+.cr-row input:focus { border-color: #58a6ff; }
+.cr-toggles { display: flex; gap: 16px; margin-top: 2px; }
+.cr-toggle { display: flex; align-items: center; gap: 6px; font-size: 0.78rem; color: #c9d1d9; cursor: pointer; }
+.cr-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 4px; }
+.cr-save { background: #1a2744; border: 1px solid #58a6ff; color: #58a6ff; padding: 5px 14px; border-radius: 5px; cursor: pointer; font-size: 0.78rem; font-weight: 600; }
+.cr-save:hover { background: #58a6ff; color: #0d1117; }
+.cr-status { font-size: 0.72rem; color: #8b949e; }
+.cr-add-bar { margin-bottom: 14px; }
+.cr-add-form { max-width: 340px; margin-bottom: 16px; }
 </style>
 </head>
 <body>
@@ -104,6 +135,7 @@ code { background: #1c2128; padding: 2px 6px; border-radius: 4px; font-size: 0.7
             <button class="sub-tab active" data-sub="players">Players</button>
             <button class="sub-tab" data-sub="stats">Player Stats</button>
             <button class="sub-tab" data-sub="invitations">Invitations</button>
+            <button class="sub-tab" data-sub="chatrooms">Chat Rooms</button>
         </div>
         <div id="sub-players" class="sub-panel active">
             <div class="search-bar"><input type="text" id="sp" placeholder="Search by name, ID, or country..."><span class="row-count" id="rc-p"></span><select class="limit-select" id="limit-p"><option value="20">20</option><option value="50" selected>50</option><option value="Infinity">All</option></select></div>
@@ -144,12 +176,33 @@ code { background: #1c2128; padding: 2px 6px; border-radius: 4px; font-size: 0.7
                 <th data-c="expires_at">Expires <span class="sa"></span></th>
             </tr></thead><tbody id="tb-i"></tbody></table>
         </div>
+        <div id="sub-chatrooms" class="sub-panel">
+            <div class="cr-add-bar">
+                <button class="refresh-btn" id="cr-add-toggle" onclick="toggleAddCr()">+ Add Chat Room</button>
+            </div>
+            <div id="cr-add-form" class="cr-card cr-add-form" style="display:none">
+                <div class="cr-body">
+                    <div class="cr-row"><label>Category</label><input type="text" id="new-cat" placeholder="e.g. VIETNAM"></div>
+                    <div class="cr-row"><label>Label</label><input type="text" id="new-label" placeholder="e.g. Vietnam"></div>
+                    <div class="cr-row"><label>ISO Code</label><input type="text" id="new-iso" placeholder="e.g. VNM"></div>
+                    <div class="cr-row"><label>Req. Level</label><input type="number" id="new-level" value="0"></div>
+                    <div class="cr-row"><label>Req. Coins</label><input type="number" id="new-coins" value="0"></div>
+                    <div class="cr-row"><label>Max Clients</label><input type="number" id="new-max" value="100"></div>
+                    <div class="cr-toggles">
+                        <label class="cr-toggle"><input type="checkbox" id="new-vip"> VIP</label>
+                    </div>
+                    <div class="cr-footer"><span class="cr-status" id="st-new"></span><button class="cr-save" onclick="createChatRoom()">Create</button></div>
+                </div>
+            </div>
+            <div id="cr-grid" class="cr-grid"></div>
+        </div>
     </div>
 </div>
 <script>
 const P = ${playersJson};
 const S = ${statsJson};
 const I = ${invitationsJson};
+const CR = ${chatRoomsJson};
 const sort = { p: { c: null, a: true }, s: { c: null, a: true }, i: { c: null, a: true } };
 
 function esc(s) { if (s == null) return ''; const d = document.createElement('div'); d.textContent = String(s); return d.innerHTML; }
@@ -206,6 +259,140 @@ function renderI() {
     }).join('');
 }
 
+function renderCR() {
+    const grid = document.getElementById('cr-grid');
+    if (!CR.length) { grid.innerHTML = '<div class="empty">No chat rooms found</div>'; return; }
+    grid.innerHTML = CR.map(r => {
+        const bg = r.cover_image_url ? ' style="background-image:url(\\'' + esc(r.cover_image_url) + '\\')"' : '';
+        return '<div class="cr-card" data-cat="' + esc(r.category) + '">' +
+            '<label class="cr-cover"' + bg + '>' + (r.cover_image_url ? '' : 'No cover image') +
+                '<input type="file" accept="image/*" onchange="uploadCover(\\'' + esc(r.category) + '\\', this)"></label>' +
+            '<div class="cr-body">' +
+                '<div class="cr-row"><label>Category</label><code>' + esc(r.category) + '</code></div>' +
+                '<div class="cr-row"><label>Label</label><input type="text" class="f-label" value="' + esc(r.label) + '"></div>' +
+                '<div class="cr-row"><label>ISO Code</label><input type="text" class="f-iso" value="' + esc(r.iso_code || '') + '" placeholder="e.g. BGD"></div>' +
+                '<div class="cr-row"><label>Req. Level</label><input type="number" class="f-level" value="' + esc(r.required_level) + '"></div>' +
+                '<div class="cr-row"><label>Req. Coins</label><input type="number" class="f-coins" value="' + esc(r.required_coins) + '"></div>' +
+                '<div class="cr-toggles">' +
+                    '<label class="cr-toggle"><input type="checkbox" class="f-active" ' + (r.is_active ? 'checked' : '') + '> Active</label>' +
+                    '<label class="cr-toggle"><input type="checkbox" class="f-vip" ' + (r.is_vip ? 'checked' : '') + '> VIP</label>' +
+                '</div>' +
+                '<div class="cr-footer"><span class="cr-status" id="st-' + esc(r.category) + '"></span><button class="cr-save" onclick="saveChatRoom(\\'' + esc(r.category) + '\\')">Save</button></div>' +
+            '</div>' +
+        '</div>';
+    }).join('');
+}
+
+function toggleAddCr() {
+    const form = document.getElementById('cr-add-form');
+    form.style.display = form.style.display === 'none' ? 'block' : 'none';
+}
+
+async function createChatRoom() {
+    const status = document.getElementById('st-new');
+    const category = document.getElementById('new-cat').value.trim();
+    const label = document.getElementById('new-label').value.trim();
+    if (!category || !label) { status.textContent = 'Category and label are required'; return; }
+    const body = {
+        category,
+        label,
+        isoCode: document.getElementById('new-iso').value.trim() || null,
+        requiredLevel: parseInt(document.getElementById('new-level').value, 10) || 0,
+        requiredCoins: parseInt(document.getElementById('new-coins').value, 10) || 0,
+        maxClients: parseInt(document.getElementById('new-max').value, 10) || 100,
+        isVip: document.getElementById('new-vip').checked,
+    };
+    status.textContent = 'Creating...';
+    try {
+        const r = await fetch('/api/chatrooms', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        const d = await r.json();
+        if (d.success) {
+            CR.push({
+                category: d.room.category,
+                label: d.room.label,
+                cover_image_url: d.room.coverImageUrl,
+                iso_code: d.room.isoCode,
+                required_level: d.room.requiredLevel,
+                required_coins: d.room.requiredCoins,
+                max_clients: d.room.maxClients,
+                sort_order: d.room.sortOrder,
+                is_active: d.room.isActive,
+                is_vip: d.room.isVip,
+            });
+            renderCR();
+            toggleAddCr();
+            ['new-cat','new-label','new-iso','new-max'].forEach(id => document.getElementById(id).value = '');
+            document.getElementById('new-level').value = '0';
+            document.getElementById('new-coins').value = '0';
+            document.getElementById('new-max').value = '100';
+            document.getElementById('new-vip').checked = false;
+        } else {
+            status.textContent = 'Failed: ' + (d.error || 'unknown error');
+        }
+    } catch (e) {
+        status.textContent = 'Network error: ' + e.message;
+    }
+}
+
+async function saveChatRoom(category) {
+    const card = document.querySelector('.cr-card[data-cat="' + CSS.escape(category) + '"]');
+    const status = document.getElementById('st-' + category);
+    const body = {
+        label: card.querySelector('.f-label').value,
+        isoCode: card.querySelector('.f-iso').value || null,
+        requiredLevel: parseInt(card.querySelector('.f-level').value, 10) || 0,
+        requiredCoins: parseInt(card.querySelector('.f-coins').value, 10) || 0,
+        isActive: card.querySelector('.f-active').checked,
+        isVip: card.querySelector('.f-vip').checked,
+    };
+    status.textContent = 'Saving...';
+    try {
+        const r = await fetch('/api/chatrooms/' + encodeURIComponent(category), {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        const d = await r.json();
+        status.textContent = d.success ? 'Saved' : ('Failed: ' + (d.error || 'unknown error'));
+    } catch (e) {
+        status.textContent = 'Network error: ' + e.message;
+    }
+    setTimeout(() => { status.textContent = ''; }, 2500);
+}
+
+async function uploadCover(category, input) {
+    const file = input.files && input.files[0];
+    if (!file) return;
+    const status = document.getElementById('st-' + category);
+    status.textContent = 'Uploading...';
+    try {
+        const r = await fetch('/api/chatrooms/' + encodeURIComponent(category) + '/cover', {
+            method: 'POST',
+            headers: { 'Content-Type': file.type || 'image/jpeg' },
+            body: file,
+        });
+        const d = await r.json();
+        if (d.success) {
+            const cover = input.closest('.cr-cover');
+            cover.style.backgroundImage = "url('" + d.room.coverImageUrl + "')";
+            cover.textContent = '';
+            cover.appendChild(input);
+            const cr = CR.find(x => x.category === category);
+            if (cr) cr.cover_image_url = d.room.coverImageUrl;
+            status.textContent = 'Cover updated';
+        } else {
+            status.textContent = 'Failed: ' + (d.error || 'unknown error');
+        }
+    } catch (e) {
+        status.textContent = 'Network error: ' + e.message;
+    }
+    setTimeout(() => { status.textContent = ''; }, 2500);
+}
+
 function srt(rows, k) {
     const s = sort[k]; if (!s.c) return rows;
     return [...rows].sort((a, b) => {
@@ -251,7 +438,7 @@ document.getElementById('si').addEventListener('input', renderI);
 document.getElementById('limit-p').addEventListener('change', renderP);
 document.getElementById('limit-s').addEventListener('change', renderS);
 
-renderP(); renderS(); renderI();
+renderP(); renderS(); renderI(); renderCR();
 </script>
 </body>
 </html>`;

@@ -24,7 +24,7 @@ export class MessageHandler extends BaseHandler {
     constructor() {
         super(...arguments);
         this.chatHistory = [];
-        this.MAX_HISTORY = 50;
+        this.MAX_HISTORY = 100;
         this.MAX_CONTENT_LENGTH = 200;
         this.MAX_NAME_LENGTH = 25;
         this.MAX_AVATAR_LENGTH = 999;

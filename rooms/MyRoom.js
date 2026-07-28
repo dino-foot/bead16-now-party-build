@@ -126,6 +126,17 @@ export class MyRoom extends Room {
             console.log("[CURRENT TURN] ", player.name, data);
             this.state.gameState.moveBead(bead.ownerPlayfabId, beadId, toIndex);
         }); // end onMessage
+        //? client detected sustained bad network on its own connection and is about to leave.
+        //? the client refunds itself locally; the opponent is NOT notified - they keep playing
+        //? normally, with the disconnected player's turns handled by the existing autoplay logic
+        //? once this client's consented Room.Leave() triggers onLeave() below.
+        // this.onMessage("LOW_NETWORK_LEAVE", (client) => {
+        //   const player = this.state.players.get(client.sessionId);
+        //   if (!player || player.isSpectator) return;
+        //   const perPlayerFee = this.state.totalEntryFees / 2;
+        //   const refundAmount = Math.round(perPlayerFee * (1 - MATCH_COMMISSION));
+        //   console.log(`[LOW_NETWORK_LEAVE] ${player.name} refund=${refundAmount}`);
+        // });
         //? send draw request to opponent
         this.handleDraw();
         this.setupGiftHandler();

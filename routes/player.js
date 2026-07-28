@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { MatchHistoryService } from "../services/MatchHistoryService.js";
+import { PlayerService } from "../services/PlayerService.js";
 import pool from "../db/db.js";
 const router = Router();
 router.get("/recent/:playfabId", async (req, res) => {
@@ -35,6 +36,34 @@ router.get("/profile/:playfabId", async (req, res) => {
     catch (error) {
         console.error("[PLAYER] Profile error:", error);
         res.status(500).json({ error: error.message || "Failed to fetch player profile" });
+    }
+});
+// POST /api/player/:playfabId/vip - grant/revoke VIP chat-room access. Client calls this
+// right after its own IAP purchase succeeds or its own rewarded-ad reward callback fires
+// (same trust model as the existing /api/stats/update: client asserts, server persists).
+router.post("/:playfabId/vip", async (req, res) => {
+    try {
+        const { playfabId } = req.params;
+        const { isVip, source } = req.body || {};
+        if (!playfabId) {
+            res.status(400).json({ error: "playfabId is required" });
+            return;
+        }
+        if (typeof isVip !== "boolean") {
+            res.status(400).json({ error: "isVip (boolean) is required" });
+            return;
+        }
+        const updated = await PlayerService.setVip(playfabId, isVip);
+        if (!updated) {
+            res.status(404).json({ error: "Player not found" });
+            return;
+        }
+        console.log(`[PLAYER] VIP ${isVip ? "granted" : "revoked"} for ${playfabId} (source: ${source || "unknown"})`);
+        res.json({ success: true, isVip });
+    }
+    catch (error) {
+        console.error("[PLAYER] VIP update error:", error);
+        res.status(500).json({ error: error.message || "Failed to update VIP status" });
     }
 });
 router.delete("/:playfabId", async (req, res) => {

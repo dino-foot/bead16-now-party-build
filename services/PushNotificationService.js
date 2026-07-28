@@ -42,10 +42,23 @@ export class PushNotificationService {
      * title/body instead of going through getNotificationBody.
      */
     static async sendWeeklyRewardNotification(playfabId, rank, coins) {
-        return PushNotificationService.deliver(playfabId, "Collect 🏆 Weekly League Reward!", `You finished #${rank} this, collect ${coins} coins!`, {
+        return PushNotificationService.deliver(playfabId, "Collect 🏆 Weekly League Reward! 🎁", `You finished #${rank} this, collect ${coins} coins!`, {
             type: String(PushNotificationType.WeeklyReward),
             rank: String(rank),
             coins: String(coins),
+        });
+    }
+    /**
+     * Notifies a tracked top-100 player that their weekly rank got worse because
+     * other players won matches while they were away. Called by RankDropService's
+     * periodic scan - not sender-based like sendMessageNotification, so it builds
+     * its own title/body instead of going through getNotificationBody.
+     */
+    static async sendRankDroppedNotification(playfabId, oldRank, newRank) {
+        return PushNotificationService.deliver(playfabId, "Your rank dropped ! 😭", `You dropped from #${oldRank} to #${newRank} in the Weekly League.`, {
+            type: String(PushNotificationType.RankDropped),
+            oldRank: String(oldRank),
+            newRank: String(newRank),
         });
     }
     static async deliver(recipientPlayfabId, title, body, data) {
@@ -108,6 +121,7 @@ export var PushNotificationType;
     PushNotificationType[PushNotificationType["FriendRequest"] = 1] = "FriendRequest";
     PushNotificationType[PushNotificationType["RoomInvite"] = 2] = "RoomInvite";
     PushNotificationType[PushNotificationType["WeeklyReward"] = 3] = "WeeklyReward";
+    PushNotificationType[PushNotificationType["RankDropped"] = 4] = "RankDropped";
 })(PushNotificationType || (PushNotificationType = {}));
 export function getNotificationBody(type, senderName) {
     switch (type) {
