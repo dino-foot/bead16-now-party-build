@@ -69,10 +69,10 @@ const server = defineServer({
     routes: createRouter({
         version: createEndpoint("/version", { method: "GET" }, async (ctx) => {
             return {
-                version: "0.2.4",
+                version: "0.2.5",
                 timestamp: new Date().toISOString(),
                 versionInfo: {
-                    "releaseNote": "chatroom"
+                    "releaseNote": "server auth currency +/- and player support system"
                 }
             };
         }),

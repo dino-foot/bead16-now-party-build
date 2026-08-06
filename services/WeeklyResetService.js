@@ -41,9 +41,13 @@ export class WeeklyResetService {
                 SELECT * FROM ranked WHERE rank <= $2 ORDER BY rank ASC
             `, [weekStart, REWARD_TIERS.length]);
             if (winners.rowCount === 0) {
-                await client.query(`DELETE FROM weekly_player_stats WHERE week_start <= $1`, [weekStart]);
+                // Not deleting weekly_player_stats rows here (unlike this branch's original
+                // behavior) - runWeeklySupportsReset reads the same table for the same week
+                // ~10 minutes later, and a week with zero wins can still have players with
+                // supports to reward. Deleting would wipe their supports data before that
+                // job runs.
                 await client.query("COMMIT");
-                console.log(`[WeeklyReset] No wins recorded for week starting ${weekStart}, nothing to reward. Cleared weekly_player_stats through that week.`);
+                console.log(`[WeeklyReset] No wins recorded for week starting ${weekStart}, nothing to reward.`);
                 return;
             }
             const rewardedPlayers = [];
@@ -78,6 +82,72 @@ export class WeeklyResetService {
         catch (err) {
             await client.query("ROLLBACK");
             console.error("[WeeklyReset] Failed:", err);
+            throw err;
+        }
+        finally {
+            client.release();
+        }
+    }
+    /**
+     * Same shape as runWeeklyReset, but ranks/rewards the calendar week that just ended by
+     * supports (likes/thumbs-up) received instead of wins - both read/write the same
+     * weekly_player_stats row per player, just different columns. Meant to run once, early
+     * Monday morning (offset a few minutes from the wins job in index.ts to avoid both
+     * racing the same rows at once).
+     */
+    static async runWeeklySupportsReset() {
+        const client = await pool.connect();
+        try {
+            await client.query("BEGIN");
+            const { rows: [{ week_start: weekStart }] } = await client.query(`
+                SELECT (date_trunc('week', NOW()) - INTERVAL '7 days') AS week_start
+            `);
+            const winners = await client.query(`
+                WITH ranked AS (
+                    SELECT
+                        p.playfab_id,
+                        w.supports,
+                        RANK() OVER (ORDER BY w.supports DESC) AS rank
+                    FROM weekly_player_stats w
+                    JOIN players p ON p.playfab_id = w.playfab_id
+                    WHERE w.week_start = $1
+                )
+                SELECT * FROM ranked WHERE rank <= $2 ORDER BY rank ASC
+            `, [weekStart, REWARD_TIERS.length]);
+            if (winners.rowCount === 0) {
+                await client.query("COMMIT");
+                console.log(`[WeeklySupportsReset] No supports recorded for week starting ${weekStart}, nothing to reward.`);
+                return;
+            }
+            const rewardedPlayers = [];
+            for (const row of winners.rows) {
+                const coinsAwarded = REWARD_TIERS[row.rank - 1];
+                await client.query(`UPDATE player_stats SET coins = coins + $1, updated_at = NOW() WHERE playfab_id = $2`, [coinsAwarded, row.playfab_id]);
+                rewardedPlayers.push({ playfabId: row.playfab_id, rank: row.rank, coins: coinsAwarded });
+            }
+            await client.query("COMMIT");
+            console.log(`[WeeklySupportsReset] Rewarded ${rewardedPlayers.length} players for week starting ${weekStart}`);
+            // PlayFab grant + push notification happen after commit, same reasoning as
+            // runWeeklyReset above.
+            for (const player of rewardedPlayers) {
+                try {
+                    await PlayFabService.addVirtualCurrency(player.playfabId, player.coins);
+                }
+                catch (err) {
+                    console.error(`[WeeklySupportsReset] Failed to grant PlayFab currency to ${player.playfabId}:`, err);
+                    continue;
+                }
+                try {
+                    await PushNotificationService.sendWeeklySupportsRewardNotification(player.playfabId, player.rank, player.coins);
+                }
+                catch (err) {
+                    console.error(`[WeeklySupportsReset] Failed to notify ${player.playfabId}:`, err);
+                }
+            }
+        }
+        catch (err) {
+            await client.query("ROLLBACK");
+            console.error("[WeeklySupportsReset] Failed:", err);
             throw err;
         }
         finally {

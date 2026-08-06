@@ -51,6 +51,13 @@ export async function ensureTablesExist() {
     await pool.query(`
         CREATE INDEX IF NOT EXISTS idx_player_stats_playfab_id ON player_stats(playfab_id);
     `);
+    // Cumulative lifetime support (like/thumbs-up) count, credited to a match's target
+    // player whenever a spectator supports them (see match_supports below). Backfilled on
+    // top of the existing table the same way is_vip was, since CREATE TABLE IF NOT EXISTS
+    // is a no-op on databases that already have player_stats.
+    await pool.query(`
+        ALTER TABLE player_stats ADD COLUMN IF NOT EXISTS supports INTEGER NOT NULL DEFAULT 0;
+    `);
     console.log("[DB] Ensured player_stats table exists");
     // invitations table for private match invitations
     await pool.query(`
@@ -112,6 +119,17 @@ export async function ensureTablesExist() {
         CREATE INDEX IF NOT EXISTS idx_weekly_player_stats_week_wins
         ON weekly_player_stats(week_start, wins DESC);
     `);
+    // Same per-player-per-week counter idea as wins above, but for supports received -
+    // piggybacks on this table (rather than a new one) so it gets the same free
+    // weekly reset with no extra cleanup code, and the same (playfab_id, week_start)
+    // row is reused for both counters.
+    await pool.query(`
+        ALTER TABLE weekly_player_stats ADD COLUMN IF NOT EXISTS supports INTEGER NOT NULL DEFAULT 0;
+    `);
+    await pool.query(`
+        CREATE INDEX IF NOT EXISTS idx_weekly_player_stats_week_supports
+        ON weekly_player_stats(week_start, supports DESC);
+    `);
     console.log("[DB] Ensured weekly_player_stats table exists");
     // Rank-drop tracking columns, added on top of the existing weekly_player_stats
     // table rather than a new one - rank only ever needs comparing within the
@@ -158,6 +176,42 @@ export async function ensureTablesExist() {
         ALTER TABLE chatroom_config ADD COLUMN IF NOT EXISTS iso_code VARCHAR(10);
     `);
     console.log("[DB] Ensured chatroom_config table exists");
+    // match_supports: durable record of a spectator supporting (liking/thumbs-up) a player
+    // during a match. A spectator gets exactly one support *per match* (not per target),
+    // which is what the UNIQUE constraint on (match_id, supporter_playfab_id) enforces -
+    // it's the backstop behind the room's in-memory Set check (MyRoom's
+    // setupSupportHandler), covering reconnects or a room restart where the in-memory
+    // state would otherwise be lost.
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS match_supports (
+            id SERIAL PRIMARY KEY,
+            match_id VARCHAR(50) NOT NULL,
+            supporter_playfab_id VARCHAR(50) NOT NULL,
+            target_playfab_id VARCHAR(50) NOT NULL,
+            created_at TIMESTAMPTZ DEFAULT NOW(),
+            UNIQUE (match_id, supporter_playfab_id)
+        );
+    `);
+    console.log("[DB] Ensured match_supports table exists");
+    // match_transactions: ledger of currency movements MatchWalletService applies for a
+    // match (ENTRY_FEE at match start, PAYOUT to the winner, REFUND split on a draw). The
+    // UNIQUE constraint on (match_id, playfab_id, type) is what makes applyLedgerEntry
+    // idempotent - a crash/retry after the row is COMPLETE short-circuits instead of
+    // double-charging or double-paying the same player for the same match.
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS match_transactions (
+            id SERIAL PRIMARY KEY,
+            match_id VARCHAR(50) NOT NULL,
+            playfab_id VARCHAR(50) NOT NULL,
+            type VARCHAR(20) NOT NULL,
+            amount INTEGER NOT NULL,
+            status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+            created_at TIMESTAMPTZ DEFAULT NOW(),
+            completed_at TIMESTAMPTZ,
+            UNIQUE (match_id, playfab_id, type)
+        );
+    `);
+    console.log("[DB] Ensured match_transactions table exists");
     await pool.query(`
         INSERT INTO chatroom_config (category, label, iso_code, required_level, required_coins, max_clients, sort_order)
         VALUES

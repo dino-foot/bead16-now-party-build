@@ -150,7 +150,7 @@ export class Player extends Schema {
         this.avatarUrl = "url";
         this.disconnected = false;
         this.isSpectator = null;
-        this.likeCount = 0;
+        this.supportCount = 0;
         this.canRequestDraw = null; // room.Send("requestDraw");
         this.score = 0;
         this.moves = 0;
@@ -211,7 +211,7 @@ __decorate([
 ], Player.prototype, "isSpectator", void 0);
 __decorate([
     type("int32")
-], Player.prototype, "likeCount", void 0);
+], Player.prototype, "supportCount", void 0);
 __decorate([
     type("boolean")
 ], Player.prototype, "canRequestDraw", void 0);

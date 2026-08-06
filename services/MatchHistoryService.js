@@ -57,7 +57,8 @@ export class MatchHistoryService {
                 COALESCE(s.exp, 0) AS exp,
                 COALESCE(s.coins, 0) AS coins,
                 COALESCE(s.games_played, 0) AS games_played,
-                COALESCE(s.games_won, 0) AS games_won
+                COALESCE(s.games_won, 0) AS games_won,
+                COALESCE(s.supports, 0) AS supports
             FROM players p
             LEFT JOIN player_stats s ON p.playfab_id = s.playfab_id
             WHERE p.playfab_id = $1
@@ -80,6 +81,7 @@ export class MatchHistoryService {
             gamesPlayed,
             gamesWon,
             winRate: gamesPlayed > 0 ? Math.round((gamesWon / gamesPlayed) * 100) : 0,
+            supports: row.supports || 0,
         };
     }
 }

@@ -49,6 +49,19 @@ export class PushNotificationService {
         });
     }
     /**
+     * Same as sendWeeklyRewardNotification, but for the weekly supports leaderboard - kept
+     * as a separate method (rather than a flag) so the copy can call out "supports"
+     * explicitly. Called by WeeklyResetService.runWeeklySupportsReset after its Monday
+     * reset commits.
+     */
+    static async sendWeeklySupportsRewardNotification(playfabId, rank, coins) {
+        return PushNotificationService.deliver(playfabId, "Collect ❤️ Weekly Support Reward! 🎁", `You finished #${rank} in supports this week, collect ${coins} coins!`, {
+            type: String(PushNotificationType.WeeklySupportsReward),
+            rank: String(rank),
+            coins: String(coins),
+        });
+    }
+    /**
      * Notifies a tracked top-100 player that their weekly rank got worse because
      * other players won matches while they were away. Called by RankDropService's
      * periodic scan - not sender-based like sendMessageNotification, so it builds
@@ -122,6 +135,7 @@ export var PushNotificationType;
     PushNotificationType[PushNotificationType["RoomInvite"] = 2] = "RoomInvite";
     PushNotificationType[PushNotificationType["WeeklyReward"] = 3] = "WeeklyReward";
     PushNotificationType[PushNotificationType["RankDropped"] = 4] = "RankDropped";
+    PushNotificationType[PushNotificationType["WeeklySupportsReward"] = 5] = "WeeklySupportsReward";
 })(PushNotificationType || (PushNotificationType = {}));
 export function getNotificationBody(type, senderName) {
     switch (type) {

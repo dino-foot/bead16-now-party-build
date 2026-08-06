@@ -26,6 +26,12 @@ initializeFirebase();
 cron.schedule("5 0 * * 1", () => {
     WeeklyResetService.runWeeklyReset().catch(err => console.error("[WeeklyReset] Scheduled run failed:", err));
 }, { timezone: "UTC" });
+// Same idea as the wins reset above, but for the weekly supports leaderboard - offset by 10
+// minutes so the two jobs don't race against each other over the same weekly_player_stats
+// rows.
+cron.schedule("15 0 * * 1", () => {
+    WeeklyResetService.runWeeklySupportsReset().catch(err => console.error("[WeeklySupportsReset] Scheduled run failed:", err));
+}, { timezone: "UTC" });
 // Scans the top 100 of the live weekly leaderboard for players whose rank got
 // worse since the last scan (because other players won matches) and nudges them
 // back with a push - runs every 3 hours rather than on match end, matching the

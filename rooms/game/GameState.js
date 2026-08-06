@@ -11,6 +11,8 @@ export class GameState extends Schema {
     constructor(P1, P2) {
         super(); // Essential when extending Schema
         this.winnerPlayerfabId = "";
+        // NOT synced - only used server-side (MyRoom) to decide the PAYOUT/REFUND split after endGame()
+        this.outcome = "";
         this.turnEndsAt = 0; // sync this with unity to trigger timer
         this.isStreaming = false;
         this.activeMultiJumpId = ""; // | null
@@ -254,7 +256,7 @@ export class GameState extends Schema {
         const opponentHasBeads = this.allBeads.some(b => b.isAlive && b.ownerPlayfabId === opponentId);
         // TODO validate if this the correct gameover | score1 > score2 or draw
         if (!opponentHasBeads) {
-            this.endGame(bead.ownerPlayfabId); // Attacker wins
+            this.endGame(bead.ownerPlayfabId, "WIN"); // Attacker wins
             return;
         }
     }
@@ -306,9 +308,10 @@ export class GameState extends Schema {
     getBeadById(id) {
         return this.allBeads.find((b) => b.id === id);
     }
-    endGame(winnerId) {
+    endGame(winnerId, outcome) {
         this.gameStatus = "END";
         this.winnerPlayerfabId = winnerId ?? "";
+        this.outcome = outcome;
         const winnerPlayer = this.players.find(p => p.playfabId === this.winnerPlayerfabId);
         console.log(`[GAME OVER] Winner PlayfabId : ${winnerId ?? "DRAW"}`);
         console.log(`[SCORE] ${this.players[0]?.name} = ${this.players[0]?.score} | ${this.players[1]?.name} = ${this.players[1]?.score}`);

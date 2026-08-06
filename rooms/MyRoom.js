@@ -13,6 +13,8 @@ import { ChatHandler } from "./chat/ChatHandler.js";
 import { generateUniqueRoomId, releaseRoomId } from "./utils/GenerateUniqueRoomId.js";
 import { PRIVATE_ROOM_PREFIX } from "../routes/privateRoom.js";
 import { MatchHistoryService } from "../services/MatchHistoryService.js";
+import { MatchSupportService } from "../services/MatchSupportService.js";
+import { MatchWalletService } from "../services/MatchWalletService.js";
 class Bead16RoomState extends Schema {
     constructor() {
         super(...arguments);
@@ -45,6 +47,13 @@ export class MyRoom extends Room {
         // room variables
         this.maxClients = MAX_CLIENTS;
         this.autoDispose = true;
+        // Spectator playfabIds who have already sent their one support for this match - fast
+        // in-memory check backed by the match_supports UNIQUE constraint (see MatchSupportService)
+        // as the durable fallback if the room restarts mid-match.
+        this.supportSentThisMatch = new Set();
+        // Supports are a public-match feature only - private (play-with-friend) matches don't
+        // allow them. Set alongside setPrivate(true) in onCreate below.
+        this.isPrivateRoom = false;
     }
     async onAuth(client, options) {
         const playfabId = options?.playfabId; // todo do sanity check on playfabId format 
@@ -76,6 +85,7 @@ export class MyRoom extends Room {
         if (options.isPrivate) {
             // private room [play with friend]
             this.setPrivate(true);
+            this.isPrivateRoom = true;
             // Use reserved room code if provided (from REST API polling flow)
             if (options.reservedRoomCode) {
                 this.roomId = options.reservedRoomCode;
@@ -140,6 +150,7 @@ export class MyRoom extends Room {
         //? send draw request to opponent
         this.handleDraw();
         this.setupGiftHandler();
+        this.setupSupportHandler();
         this.chatHandler.setup(); // Initialize chat message handlers
     } // end onCreate
     async onJoin(client, options) {
@@ -234,6 +245,40 @@ export class MyRoom extends Room {
         catch (err) {
             console.error("[MATCH] Failed to record match history ", err);
         }
+        // Charge both players their entry fee now that the match is actually starting (not
+        // at onJoin - a player who joined but whose opponent never showed would otherwise be
+        // charged for a match that never happened).
+        const perPlayerFee = this.state.totalEntryFees / 2;
+        try {
+            await Promise.all(this.state.gameState.players.map(p => MatchWalletService.applyLedgerEntry(this.roomId, p.playfabId, "ENTRY_FEE", perPlayerFee)));
+        }
+        catch (err) {
+            console.error(`[MATCH_WALLET] Failed to charge entry fee for room ${this.roomId}`, err);
+        }
+        this.broadcast("PAYOUT_COMPLETE", {});
+    }
+    // Called once, right when the game transitions into gameStatus "END" (see the
+    // isGameOver guard in update() below). Pays the winner (WIN) or splits the pot back
+    // (DRAW) via MatchWalletService, then tells clients to refresh their PlayFab balance.
+    async handleMatchPayout() {
+        const game = this.state.gameState;
+        if (!game)
+            return;
+        try {
+            if (game.outcome === "WIN" && game.winnerPlayerfabId) {
+                await MatchWalletService.applyLedgerEntry(this.roomId, game.winnerPlayerfabId, "PAYOUT", this.state.winnerFees);
+            }
+            else if (game.outcome === "DRAW") {
+                const perPlayerShare = this.state.winnerFees / 2;
+                await Promise.all(game.players.map(p => MatchWalletService.applyLedgerEntry(this.roomId, p.playfabId, "REFUND", perPlayerShare)));
+            }
+        }
+        catch (err) {
+            console.error(`[MATCH_WALLET] Failed to settle payout for room ${this.roomId}`, err);
+        }
+        finally {
+            this.broadcast("PAYOUT_COMPLETE", {});
+        }
     }
     update(deltaTime) {
         const game = this.state.gameState;
@@ -249,6 +294,7 @@ export class MyRoom extends Room {
             if (!this.metadata?.isGameOver) {
                 console.log("[GAMEOVER] - Cleaning up room...");
                 this.setMetadata({ ...this.metadata, isGameOver: true }); // for room spectators filter
+                this.handleMatchPayout();
                 // Start the final countdown to room disposal
                 this.clock.setTimeout(() => {
                     console.log("[GAMEOVER] 60s passed. Disconnecting all clients.");
@@ -388,8 +434,9 @@ export class MyRoom extends Room {
             });
             // handle gameover
             if (this.state?.gameState?.gameStatus !== "END") {
-                this.state.gameState.endGame(null);
+                this.state.gameState.endGame(null, "DRAW");
                 this.setMetadata({ ...this.metadata, isGameOver: true });
+                this.handleMatchPayout();
             }
             console.log("[DRAW] Draw accepted, game ended in a draw. ", sender?.name);
         });
@@ -432,6 +479,54 @@ export class MyRoom extends Room {
             // setTimeout(() => {
             //   this.debugGiftEcho(client, data.giftId, sender.playfabId, targetPlayer.playfabId);
             // }, 5000)
+        });
+    }
+    setupSupportHandler() {
+        this.onMessage("SUPPORT_PLAYER", async (client, data) => {
+            // Support only applies to public matches, not private (play-with-friend) matches.
+            if (this.isPrivateRoom) {
+                console.log(`[SUPPORT] Rejected: room ${this.roomId} is private.`);
+                return;
+            }
+            const sender = this.state.players.get(client.sessionId);
+            if (!sender) {
+                console.log(`[SUPPORT] Rejected: Unknown client ${client.sessionId}`);
+                return;
+            }
+            // Only spectators may send support - real match participants can't support each other.
+            if (!sender.isSpectator) {
+                console.log(`[SUPPORT] Rejected: Sender ${sender.playfabId} is not a spectator.`);
+                return;
+            }
+            // Target must be a real (non-spectator) match participant.
+            const targetPlayer = Array.from(this.state.players.values()).find(p => p.playfabId === data.targetPlayerId && !p.isSpectator);
+            if (!targetPlayer) {
+                console.log(`[SUPPORT] Rejected: Target ${data.targetPlayerId} is invalid or a spectator.`);
+                return;
+            }
+            // One support total per match per spectator, regardless of target. Checked/set
+            // synchronously (before the DB round trip below) so a second message arriving
+            // while the first is still in flight is rejected immediately instead of racing.
+            if (this.supportSentThisMatch.has(sender.playfabId)) {
+                console.log(`[SUPPORT] Rejected: ${sender.playfabId} already used their support this match.`);
+                return;
+            }
+            this.supportSentThisMatch.add(sender.playfabId);
+            // Only reflect the support on the live schema/broadcast once it's actually durable -
+            // otherwise a DB failure (or a duplicate caught by match_supports' UNIQUE constraint
+            // after a room restart cleared supportSentThisMatch) would show a support that was
+            // never credited to the target's profile or the weekly leaderboard.
+            const persisted = await MatchSupportService.recordSupport(this.roomId, sender.playfabId, targetPlayer.playfabId);
+            if (!persisted) {
+                console.error(`[SUPPORT] Not applying: failed to persist support (${this.roomId}, ${sender.playfabId} -> ${targetPlayer.playfabId})`);
+                return;
+            }
+            targetPlayer.supportCount++;
+            this.broadcast("PLAYER_SUPPORTED", {
+                supporterPlayerId: sender.playfabId,
+                targetPlayerId: targetPlayer.playfabId,
+            });
+            console.log(`[SUPPORT] ${sender.playfabId} supported ${targetPlayer.playfabId} in room ${this.roomId}`);
         });
     }
     //? Only Debug: When a gift is received, the receiver automatically sends the same gift back to the sender

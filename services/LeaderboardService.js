@@ -14,6 +14,7 @@ function rowToEntry(row, rank) {
         gamesWon,
         winRate: gamesPlayed > 0 ? Math.round((gamesWon / gamesPlayed) * 100) : 0,
         coins: row.coins || 0,
+        supports: row.supports || 0,
     };
 }
 export class LeaderboardService {
@@ -54,7 +55,8 @@ export class LeaderboardService {
                 COALESCE(s.level, 1) AS level,
                 COALESCE(s.games_played, 0) AS games_played,
                 COALESCE(s.games_won, 0) AS games_won,
-                COALESCE(s.coins, 0) AS coins
+                COALESCE(s.coins, 0) AS coins,
+                COALESCE(s.supports, 0) AS supports
             FROM players p
             LEFT JOIN player_stats s ON p.playfab_id = s.playfab_id
             WHERE p.country = $1
@@ -84,7 +86,8 @@ export class LeaderboardService {
                 COALESCE(s.level, 1) AS level,
                 COALESCE(s.games_played, 0) AS games_played,
                 COALESCE(s.games_won, 0) AS games_won,
-                COALESCE(s.coins, 0) AS coins
+                COALESCE(s.coins, 0) AS coins,
+                COALESCE(s.supports, 0) AS supports
             FROM players p
             LEFT JOIN player_stats s ON p.playfab_id = s.playfab_id
             ORDER BY ${orderBy}
@@ -113,6 +116,7 @@ export class LeaderboardService {
                 COALESCE(s.games_played, 0) AS games_played,
                 COALESCE(s.games_won, 0) AS games_won,
                 COALESCE(s.coins, 0) AS coins,
+                COALESCE(s.supports, 0) AS supports,
                 w.wins AS period_wins
             FROM weekly_player_stats w
             JOIN players p ON p.playfab_id = w.playfab_id
@@ -124,6 +128,38 @@ export class LeaderboardService {
         return result.rows.map((row, index) => ({
             ...rowToEntry(row, offset + index + 1),
             periodWins: row.period_wins || 0,
+        }));
+    }
+    /**
+     * Ranked leaderboard of supports (likes/thumbs-up) received in the current calendar
+     * week, sourced from weekly_player_stats.supports - same self-resetting-per-week
+     * mechanism as getWeeklyWinsLeaderboard, just ordered by supports instead of wins.
+     * See WeeklyResetService.runWeeklySupportsReset for the Monday reward job.
+     */
+    static async getWeeklySupportsLeaderboard(limit = 50, offset = 0) {
+        const result = await pool.query(`
+            SELECT
+                p.playfab_id,
+                p.player_name,
+                p.country,
+                p.avatar_id,
+                p.avatar_url,
+                COALESCE(s.level, 1) AS level,
+                COALESCE(s.games_played, 0) AS games_played,
+                COALESCE(s.games_won, 0) AS games_won,
+                COALESCE(s.coins, 0) AS coins,
+                COALESCE(s.supports, 0) AS supports,
+                w.supports AS period_supports
+            FROM weekly_player_stats w
+            JOIN players p ON p.playfab_id = w.playfab_id
+            LEFT JOIN player_stats s ON p.playfab_id = s.playfab_id
+            WHERE w.week_start = date_trunc('week', NOW())
+            ORDER BY w.supports DESC
+            LIMIT $1 OFFSET $2
+        `, [limit, offset]);
+        return result.rows.map((row, index) => ({
+            ...rowToEntry(row, offset + index + 1),
+            periodSupports: row.period_supports || 0,
         }));
     }
     /**
@@ -149,6 +185,7 @@ export class LeaderboardService {
                     COALESCE(s.games_played, 0) AS games_played,
                     COALESCE(s.games_won, 0) AS games_won,
                     COALESCE(s.coins, 0) AS coins,
+                    COALESCE(s.supports, 0) AS supports,
                     RANK() OVER (ORDER BY ${orderBy}) AS rank
                 FROM players p
                 LEFT JOIN player_stats s ON p.playfab_id = s.playfab_id
@@ -182,6 +219,7 @@ export class LeaderboardService {
                     COALESCE(s.games_played, 0) AS games_played,
                     COALESCE(s.games_won, 0) AS games_won,
                     COALESCE(s.coins, 0) AS coins,
+                    COALESCE(s.supports, 0) AS supports,
                     RANK() OVER (ORDER BY ${orderBy}) AS rank
                 FROM players p
                 LEFT JOIN player_stats s ON p.playfab_id = s.playfab_id
@@ -211,6 +249,7 @@ export class LeaderboardService {
                     COALESCE(s.games_played, 0) AS games_played,
                     COALESCE(s.games_won, 0) AS games_won,
                     COALESCE(s.coins, 0) AS coins,
+                    COALESCE(s.supports, 0) AS supports,
                     w.wins AS period_wins,
                     RANK() OVER (ORDER BY w.wins DESC) AS rank
                 FROM weekly_player_stats w
@@ -224,5 +263,39 @@ export class LeaderboardService {
             return null;
         const row = result.rows[0];
         return { ...rowToEntry(row, row.rank), periodWins: row.period_wins || 0 };
+    }
+    /**
+     * A single player's rank among players with >=1 support received in the current
+     * calendar week, for the "you are #—" pinned row. Same base set/ordering as
+     * getWeeklySupportsLeaderboard - returns null if the player has received no
+     * supports this week.
+     */
+    static async getPlayerWeeklySupportsRank(playfabId) {
+        const result = await pool.query(`
+            WITH ranked AS (
+                SELECT
+                    p.playfab_id,
+                    p.player_name,
+                    p.country,
+                    p.avatar_id,
+                    p.avatar_url,
+                    COALESCE(s.level, 1) AS level,
+                    COALESCE(s.games_played, 0) AS games_played,
+                    COALESCE(s.games_won, 0) AS games_won,
+                    COALESCE(s.coins, 0) AS coins,
+                    COALESCE(s.supports, 0) AS supports,
+                    w.supports AS period_supports,
+                    RANK() OVER (ORDER BY w.supports DESC) AS rank
+                FROM weekly_player_stats w
+                JOIN players p ON p.playfab_id = w.playfab_id
+                LEFT JOIN player_stats s ON p.playfab_id = s.playfab_id
+                WHERE w.week_start = date_trunc('week', NOW())
+            )
+            SELECT * FROM ranked WHERE playfab_id = $1
+        `, [playfabId]);
+        if (result.rowCount === 0)
+            return null;
+        const row = result.rows[0];
+        return { ...rowToEntry(row, row.rank), periodSupports: row.period_supports || 0 };
     }
 }

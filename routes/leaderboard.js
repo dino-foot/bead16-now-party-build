@@ -54,6 +54,25 @@ router.get("/weekly", async (req, res) => {
         res.status(500).json({ error: error.message || "Failed to fetch leaderboard" });
     }
 });
+// GET /api/leaderboard/weekly-supports?limit=&offset=&playfabId= - ranked leaderboard of
+// supports (likes/thumbs-up) received in the current calendar week, optionally including
+// the requesting player's own rank (null if they've received no supports this week).
+router.get("/weekly-supports", async (req, res) => {
+    try {
+        const limit = parseInt(req.query.limit) || 50;
+        const offset = parseInt(req.query.offset) || 0;
+        const playfabId = req.query.playfabId;
+        const [leaderboard, currentPlayer] = await Promise.all([
+            LeaderboardService.getWeeklySupportsLeaderboard(Math.min(limit, 100), Math.max(offset, 0)),
+            playfabId ? LeaderboardService.getPlayerWeeklySupportsRank(playfabId) : Promise.resolve(null),
+        ]);
+        res.json({ success: true, type: "supports", leaderboard, currentPlayer });
+    }
+    catch (error) {
+        console.error("[LEADERBOARD] Weekly supports leaderboard error:", error);
+        res.status(500).json({ error: error.message || "Failed to fetch leaderboard" });
+    }
+});
 // GET /api/leaderboard/country/:countryCode?type=wins|coins&limit=&offset=&playfabId= - ranked
 // leaderboard for one country, optionally including the requesting player's own rank.
 router.get("/country/:countryCode", async (req, res) => {

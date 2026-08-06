@@ -20,4 +20,22 @@ export class PlayFabService {
             throw new Error(`PlayFab AddUserVirtualCurrency failed (${res.status}): ${json?.errorMessage ?? JSON.stringify(json)}`);
         }
     }
+    static async subtractVirtualCurrency(playfabId, amount) {
+        const res = await fetch(`https://${PLAYFAB_TITLE_ID}.playfabapi.com/Server/SubtractUserVirtualCurrency`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "X-SecretKey": PLAYFAB_SECRET_KEY ?? "",
+            },
+            body: JSON.stringify({
+                PlayFabId: playfabId,
+                VirtualCurrency: COIN_CURRENCY_CODE,
+                Amount: amount,
+            }),
+        });
+        const json = await res.json();
+        if (!res.ok) {
+            throw new Error(`PlayFab SubtractUserVirtualCurrency failed (${res.status}): ${json?.errorMessage ?? JSON.stringify(json)}`);
+        }
+    }
 }

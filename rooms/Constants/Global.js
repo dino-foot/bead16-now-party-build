@@ -26,6 +26,11 @@ export const DUMMY_PLAYER_TIME_MS = 10000; // 20 seconds only 1 player then trig
 export const PRIVATE_ROOM_JOIN_GRACE_MS = 30000; // 30 seconds to have both real players connected
 export const GAME_ID = "bead16_party";
 export const MATCH_COMMISSION = 0.2; // 20% commission on total entry fees
+// Kill switch for MatchWalletService's PlayFab calls. When false, ledger rows and the
+// player_stats mirror still get written (for verification), but the real PlayFab balance
+// is left untouched - flip to false if match currency needs to be paused/audited without
+// disabling the game.
+export const CURRENCY_SERVER_AUTHORITATIVE = true;
 // Feature toggles
 export const ENABLE_CHATROOM = true;
 // room clients and specators limits

@@ -39,15 +39,11 @@ export class ChatRoom extends Room {
             this.maxClients = config.maxClients;
             this.isVipRoom = !!config.isVip;
         }
-        // VIP rooms get 9 voice-party host/speaker seats, pre-seeded empty. Non-VIP
-        // rooms keep `seats` empty - the client uses seats.length as its signal for
-        // whether a room has a voice party at all.
-        if (this.isVipRoom) {
-            for (let i = 0; i < 9; i++) {
-                const seat = new Seat();
-                seat.seatIndex = i;
-                this.state.seats.push(seat);
-            }
+        // Every room gets 10 voice-party host/speaker seats, pre-seeded empty.
+        for (let i = 0; i < 10; i++) {
+            const seat = new Seat();
+            seat.seatIndex = i;
+            this.state.seats.push(seat);
         }
         this.setMetadata({ roomCategory: this.state.roomCategory });
         this.pluginManager = new PluginManager();
