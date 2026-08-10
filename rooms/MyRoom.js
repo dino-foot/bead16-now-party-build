@@ -47,10 +47,6 @@ export class MyRoom extends Room {
         // room variables
         this.maxClients = MAX_CLIENTS;
         this.autoDispose = true;
-        // Spectator playfabIds who have already sent their one support for this match - fast
-        // in-memory check backed by the match_supports UNIQUE constraint (see MatchSupportService)
-        // as the durable fallback if the room restarts mid-match.
-        this.supportSentThisMatch = new Set();
         // Supports are a public-match feature only - private (play-with-friend) matches don't
         // allow them. Set alongside setPrivate(true) in onCreate below.
         this.isPrivateRoom = false;
@@ -206,6 +202,7 @@ export class MyRoom extends Room {
                 isFull: true, // for room listing filter [once true removed from public matchmaking]
                 hostName: this.state.host?.name ?? "Host",
                 hostAvatarId: this.state.host?.avatarId ?? "0",
+                hostAvatarUrl: this.state.host?.avatarUrl ?? "",
                 p1CountryID: realPlayers[0]?.country,
                 p2CountryID: realPlayers[1]?.country
             });
@@ -504,29 +501,32 @@ export class MyRoom extends Room {
                 console.log(`[SUPPORT] Rejected: Target ${data.targetPlayerId} is invalid or a spectator.`);
                 return;
             }
-            // One support total per match per spectator, regardless of target. Checked/set
-            // synchronously (before the DB round trip below) so a second message arriving
-            // while the first is still in flight is rejected immediately instead of racing.
-            if (this.supportSentThisMatch.has(sender.playfabId)) {
-                console.log(`[SUPPORT] Rejected: ${sender.playfabId} already used their support this match.`);
-                return;
-            }
-            this.supportSentThisMatch.add(sender.playfabId);
-            // Only reflect the support on the live schema/broadcast once it's actually durable -
-            // otherwise a DB failure (or a duplicate caught by match_supports' UNIQUE constraint
-            // after a room restart cleared supportSentThisMatch) would show a support that was
-            // never credited to the target's profile or the weekly leaderboard.
-            const persisted = await MatchSupportService.recordSupport(this.roomId, sender.playfabId, targetPlayer.playfabId);
-            if (!persisted) {
+            // Toggle/switch, not a one-shot: match_supports holds this supporter's CURRENT pick
+            // for this match (at most one row), so tapping the same target again un-supports,
+            // and tapping the other target switches. Only reflect it on the live schema/broadcast
+            // once it's actually durable, so a DB failure never desyncs the visible count from
+            // what's actually credited to a player's profile/weekly leaderboard.
+            const result = await MatchSupportService.setSupport(this.roomId, sender.playfabId, targetPlayer.playfabId);
+            if (!result) {
                 console.error(`[SUPPORT] Not applying: failed to persist support (${this.roomId}, ${sender.playfabId} -> ${targetPlayer.playfabId})`);
                 return;
             }
-            targetPlayer.supportCount++;
+            if (result.previousTarget) {
+                const previousTargetPlayer = Array.from(this.state.players.values()).find(p => p.playfabId === result.previousTarget && !p.isSpectator);
+                if (previousTargetPlayer)
+                    previousTargetPlayer.supportCount = Math.max(0, previousTargetPlayer.supportCount - 1);
+            }
+            if (result.newTarget) {
+                const newTargetPlayer = Array.from(this.state.players.values()).find(p => p.playfabId === result.newTarget && !p.isSpectator);
+                if (newTargetPlayer)
+                    newTargetPlayer.supportCount++;
+            }
             this.broadcast("PLAYER_SUPPORTED", {
                 supporterPlayerId: sender.playfabId,
-                targetPlayerId: targetPlayer.playfabId,
+                previousTargetPlayerId: result.previousTarget,
+                newTargetPlayerId: result.newTarget,
             });
-            console.log(`[SUPPORT] ${sender.playfabId} supported ${targetPlayer.playfabId} in room ${this.roomId}`);
+            console.log(`[SUPPORT] ${sender.playfabId}: ${result.previousTarget ?? "(none)"} -> ${result.newTarget ?? "(none)"} in room ${this.roomId}`);
         });
     }
     //? Only Debug: When a gift is received, the receiver automatically sends the same gift back to the sender

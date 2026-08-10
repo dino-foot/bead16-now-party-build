@@ -29,7 +29,7 @@ async function seed() {
                  VALUES ($1, $2, $3)
                  ON CONFLICT (playfab_id, week_start)
                  DO UPDATE SET supports = $3, updated_at = NOW()`, [playfabId, weekStart, supports]);
-            // Mirror onto the lifetime counter too (same column MatchSupportService.recordSupport increments).
+            // Mirror onto the lifetime counter too (same column MatchSupportService.setSupport increments).
             await client.query(`UPDATE player_stats SET supports = $2, updated_at = NOW() WHERE playfab_id = $1`, [playfabId, supports]);
             console.log(`Seeded ${playfabId}: ${supports} supports (week starting ${weekStart.toISOString()})`);
         }
