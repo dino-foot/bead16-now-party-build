@@ -480,11 +480,6 @@ export class MyRoom extends Room {
     }
     setupSupportHandler() {
         this.onMessage("SUPPORT_PLAYER", async (client, data) => {
-            // Support only applies to public matches, not private (play-with-friend) matches.
-            if (this.isPrivateRoom) {
-                console.log(`[SUPPORT] Rejected: room ${this.roomId} is private.`);
-                return;
-            }
             const sender = this.state.players.get(client.sessionId);
             if (!sender) {
                 console.log(`[SUPPORT] Rejected: Unknown client ${client.sessionId}`);
